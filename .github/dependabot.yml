@@ -12,6 +12,10 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    ignore:
+      # Types follow the oldest Node the packages support (22), not the newest.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
