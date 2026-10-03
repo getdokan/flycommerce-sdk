@@ -1,0 +1,23 @@
+name: dependency-review
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  review:
+    # Needs GitHub Advanced Security on a private repo; runs once the repo is public.
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+          # Licenses a dependency may carry: permissive ones only.
+          allow-licenses: MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, BlueOak-1.0.0, CC0-1.0, Python-2.0, MIT-0, Unlicense
+          comment-summary-in-pr: on-failure
