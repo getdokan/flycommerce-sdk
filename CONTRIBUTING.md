@@ -60,6 +60,8 @@ Tests use Node's built-in runner (`node --test`). The React hooks in `app-bridge
 
 Maintainers only. Releases are published by GitHub Actions; nobody publishes from a laptop.
 
+Publishing stays switched off until the repository variable `NPM_PUBLISH_ENABLED` is `true`. An admin sets it once each package's first version is on npm and its Trusted Publisher is configured.
+
 1. Merged changesets collect in a pull request titled **"Version Packages"**. The release workflow keeps it up to date: new versions, each package's `CHANGELOG.md`, and bumps for packages that depend on a changed one.
 2. Review it, and squash-merge it when CI is green.
 3. The publish job waits for approval in the **`release` environment**. A maintainer approves it in the workflow run.
