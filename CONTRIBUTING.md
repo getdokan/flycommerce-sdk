@@ -19,7 +19,7 @@ Each language has its own folder and its own CI. Each package has its own versio
 
 ## Develop
 
-You need Node 20 or later. The repo pins 22 in `.nvmrc`.
+You need Node 22 or later, the oldest Node release still maintained. The repo pins 22 in `.nvmrc`.
 
 ```bash
 cd js

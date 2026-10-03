@@ -17,7 +17,7 @@ Server-side building blocks for FlyCommerce apps, on Node's own `http` module an
 npm install @flycommerce/app-server
 ```
 
-Node 20 or later. ESM only.
+Node 22 or later. ESM only.
 
 ## Example
 
