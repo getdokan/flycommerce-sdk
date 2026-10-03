@@ -1,0 +1,71 @@
+name: js
+
+on:
+  pull_request:
+    paths: ['js/**', 'spec/**', '.github/workflows/js.yml']
+  push:
+    branches: [main]
+    paths: ['js/**', 'spec/**', '.github/workflows/js.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: js-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: js
+
+jobs:
+  test:
+    name: test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: js/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+
+  # The required status check: everything that is not per Node version.
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: js/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Registry signatures of installed packages
+        run: npm audit signatures
+      - name: Known vulnerabilities in what we publish
+        run: npm audit --omit=dev --audit-level=low
+      - name: Known vulnerabilities in the build tools
+        run: npm audit --audit-level=high
+      - run: npm run format:check
+      - name: What would be published
+        run: npm run check:package
+      - name: Every package change has a changeset
+        if: github.event_name == 'pull_request'
+        run: npx changeset status --since=origin/${{ github.base_ref }}

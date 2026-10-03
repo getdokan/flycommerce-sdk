@@ -1,0 +1,58 @@
+{
+  "name": "@flycommerce/app-testing",
+  "description": "Fakes of the FlyCommerce platform for testing and running apps locally: hub, store, dashboard, and an OAuth 2.0 provider kit.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "FlyCommerce",
+  "bugs": {
+    "url": "https://github.com/getdokan/flycommerce-sdk/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "homepage": "https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/app-testing#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getdokan/flycommerce-sdk.git",
+    "directory": "js/packages/app-testing"
+  },
+  "keywords": [
+    "flycommerce",
+    "testing",
+    "fakes",
+    "embedded-apps",
+    "sdk"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test test-build/__tests__/*.test.js",
+    "check:package": "publint --strict && attw --pack . --profile esm-only"
+  },
+  "dependencies": {
+    "@flycommerce/app-bridge": "^0.1.0"
+  },
+  "devDependencies": {
+    "@flycommerce/app-server": "^0.1.0"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "@flycommerce/app-server",
+  "description": "Server-side building blocks for FlyCommerce apps: verify dashboard sessions, finish installs, call the store API as the user or the app, OAuth sign-in to third parties, and serve the app's pages.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "FlyCommerce",
+  "bugs": {
+    "url": "https://github.com/getdokan/flycommerce-sdk/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "homepage": "https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/app-server#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getdokan/flycommerce-sdk.git",
+    "directory": "js/packages/app-server"
+  },
+  "keywords": [
+    "flycommerce",
+    "embedded-apps",
+    "sdk",
+    "oauth",
+    "ecommerce"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test test-build/__tests__/*.test.js",
+    "check:package": "publint --strict && attw --pack . --profile esm-only"
+  },
+  "dependencies": {
+    "@flycommerce/app-bridge": "^0.1.0"
+  }
+}
