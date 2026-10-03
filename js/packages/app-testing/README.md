@@ -10,7 +10,7 @@ A fake FlyCommerce for testing your app and running it locally: a hub that issue
 npm install --save-dev @flycommerce/app-testing
 ```
 
-Node 20 or later. ESM only. **For tests and local development only.** The fakes accept any credentials they're given and must never run in production.
+Node 22 or later. ESM only. **For tests and local development only.** The fakes accept any credentials they're given and must never run in production.
 
 ## Example
 
