@@ -63,7 +63,8 @@ jobs:
 
   publish:
     needs: mode
-    if: needs.mode.outputs.mode == 'publish'
+    # Off until an admin sets the repo variable NPM_PUBLISH_ENABLED=true, after the first manual publish and Trusted Publisher setup.
+    if: needs.mode.outputs.mode == 'publish' && vars.NPM_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Required reviewers on this environment approve every release.
