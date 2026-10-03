@@ -1,0 +1,42 @@
+name: Bug report
+description: Something in a package doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Security problems go through the private "Report a security vulnerability" link instead.
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options:
+        - '@flycommerce/app-bridge'
+        - '@flycommerce/app-server'
+        - '@flycommerce/app-testing'
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Node version, or browser and version
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Smallest code that reproduces it
+      description: Leave out real tokens, secrets and store data.
+      render: ts

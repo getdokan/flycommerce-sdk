@@ -1,0 +1,6 @@
+node_modules
+dist
+test-build
+CHANGELOG.md
+.changeset/*.md
+package-lock.json
