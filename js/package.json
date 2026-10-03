@@ -9,7 +9,7 @@
     "packages/app-testing"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "npm run build --workspaces",
