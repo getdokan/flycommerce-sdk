@@ -27,6 +27,6 @@
     "@types/node": "^22.20.2",
     "prettier": "^3.6.2",
     "publint": "^0.3.15",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }
