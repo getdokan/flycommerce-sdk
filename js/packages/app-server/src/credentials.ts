@@ -10,6 +10,7 @@ export interface StoreCredential {
 export interface CredentialStore {
   get(store: string): StoreCredential | undefined;
   put(store: string, credential: StoreCredential): void;
+  delete(store: string): void;
 }
 
 export class MemoryCredentialStore implements CredentialStore {
@@ -21,6 +22,10 @@ export class MemoryCredentialStore implements CredentialStore {
 
   put(store: string, credential: StoreCredential): void {
     this.items.set(store, credential);
+  }
+
+  delete(store: string): void {
+    this.items.delete(store);
   }
 }
 
@@ -35,6 +40,17 @@ export class FileCredentialStore implements CredentialStore {
   put(store: string, credential: StoreCredential): void {
     const all = this.read();
     all[store] = credential;
+    this.write(all);
+  }
+
+  delete(store: string): void {
+    const all = this.read();
+    if (!(store in all)) return;
+    delete all[store];
+    this.write(all);
+  }
+
+  private write(all: Record<string, StoreCredential>): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
 
     // Written beside the file and renamed over it, so a crash mid-write never loses every store's credential.
