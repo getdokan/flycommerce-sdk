@@ -64,6 +64,8 @@ export interface InstallOptions {
   credentials: CredentialStore;
   frameAncestors: string[];
   appName: string;
+  /** Runs after the credential is kept and before the merchant is sent back, e.g. to subscribe to webhooks. */
+  onInstalled?: (store: string) => Promise<void>;
 }
 
 /** The whole install redirect: exchange the code, then land the merchant on the app's page in the dashboard they came from. */
@@ -79,6 +81,15 @@ export async function handleInstall(url: URL, res: ServerResponse, options: Inst
     const back = landing ? { label: 'Back to your dashboard', href: landing } : undefined;
     html(res, noticePage(`${options.appName} could not finish installing`, error.message, back), undefined, error.status);
     return null;
+  }
+
+  if (options.onInstalled) {
+    try {
+      await options.onInstalled(store);
+    } catch (error) {
+      // The install itself succeeded; the app's own reconcile on startup finishes the setup.
+      console.error('[install] onInstalled failed', error);
+    }
   }
 
   if (landing) {
