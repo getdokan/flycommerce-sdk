@@ -56,7 +56,33 @@ Tests use Node's built-in runner (`node --test`). The React hooks in `app-bridge
 
    Pick the changed packages and the bump: `patch` for fixes, `minor` for features. While packages are `0.x`, a breaking change is a `minor`. Write the note for the developers who'll read the changelog. Commit the generated `.changeset/*.md` file. CI fails a PR that changes a package without one. If a change needs no release, run `npx changeset --empty`.
 
-4. Open the PR. CI must be green. PRs are squash-merged.
+4. Open the PR with a title in the [commit message format](#commit-messages). CI must be green. PRs are squash-merged.
+
+## Commit messages
+
+Commit messages and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
+
+```
+<type>(<scope>): <summary>
+```
+
+| Type | For |
+|---|---|
+| `feat` | something new people can use |
+| `fix` | a bug fix |
+| `perf` | faster or smaller, same behaviour |
+| `refactor` | a code change that doesn't change behaviour |
+| `docs` | documentation only |
+| `test` | tests only |
+| `build` | the build, dependencies or release configuration |
+| `ci` | GitHub Actions |
+| `chore` | anything else, such as a release |
+
+- The scope is optional: the package or area, such as `app-server`, `app-bridge`, `app-emulator`, `spec` or `ai`.
+- Write the summary in the imperative, in lower case, with no full stop: `fix(app-server): refuse a webhook with no signature`.
+- A breaking change adds `!` after the type or scope and says in the body what to change.
+
+PRs are squash-merged, so the PR title becomes the commit on `main`, and a check fails the PR until the title follows the format. The commit message is for the history; developers read the changeset.
 
 ## Claude Code plugins
 
