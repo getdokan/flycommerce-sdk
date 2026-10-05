@@ -33,6 +33,12 @@ Object.assign(process.env, platform.env);
 await platform.close();
 ```
 
+## What it does like a real store
+
+- **Orders:** `addOrder()` stamps real times, and the order list honours `include`, `paginate=full`, `sort` and `filters[createdAt]` / `filters[updatedAt]` (a bare date means "since").
+- **Webhooks:** `deliver(store, event, data)` sends the real body, `{event, timestamp, data}`, signed with each subscription's secret. `FakeStore.rawOrder(order)` gives `data` the shape a store sends: snake_case, money as decimal strings, status as a number.
+- **Uninstall:** `hub.uninstall()` refuses the app's tokens and suspends its subscriptions; installing again resumes them.
+
 ## Links
 
 - [Changelog](https://github.com/getdokan/flycommerce-sdk/blob/main/js/packages/app-emulator/CHANGELOG.md)

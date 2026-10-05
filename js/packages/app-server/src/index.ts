@@ -10,3 +10,4 @@ export * from './sealer.js';
 export * from './session.js';
 export * from './static.js';
 export * from './store-api.js';
+export * from './webhooks.js';

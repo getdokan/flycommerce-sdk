@@ -54,6 +54,29 @@ http
   .listen(3000);
 ```
 
+### Webhooks
+
+Subscribe in `handleInstall`'s `onInstalled`, which runs before the merchant is sent back. Give each store its own endpoint, and check every delivery against that store's secret before reading it:
+
+```ts
+import { readRawBody, verifyWebhookSignature, type WebhookDelivery } from '@flycommerce/app-server';
+
+if (url.pathname === '/webhooks') {
+  const raw = await readRawBody(req);
+  const secret = webhookSecrets.get(url.searchParams.get('store') ?? '');
+
+  if (!secret || !verifyWebhookSignature(raw, req.headers['x-webhook-signature'], secret)) {
+    return json(res, 401, { error: 'invalid_signature' });
+  }
+
+  const delivery = JSON.parse(raw) as WebhookDelivery;
+  // delivery.event, delivery.timestamp, delivery.data
+  return json(res, 200, {});
+}
+```
+
+`data` is the record as the store keeps it (snake_case, money as decimal strings). See [`spec/webhooks.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/webhooks.md).
+
 ### Configuration
 
 `appServerConfigFromEnv()` reads:
@@ -68,7 +91,7 @@ http
 | `FRAME_ANCESTORS`             | no       | Dashboards allowed to frame your pages                                                               |
 | `CREDENTIALS_FILE`            | no       | Where `FileCredentialStore` keeps store credentials (default `data/credentials.json`)                |
 
-`FileCredentialStore` suits a single instance: it writes atomically with `0600` permissions. Running more than one instance? Implement `CredentialStore` on your database.
+`FileCredentialStore` suits a single instance: it writes atomically with `0600` permissions. Running more than one instance? Implement `CredentialStore` (`get`, `put`, `delete`) on your database.
 
 ## Security
 

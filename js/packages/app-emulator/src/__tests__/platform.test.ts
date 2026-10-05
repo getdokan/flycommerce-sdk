@@ -164,8 +164,50 @@ describe('the fake platform', () => {
 
     const expected = crypto.createHmac('sha256', created.data.secret).update(received!.body).digest('hex');
     assert.strictEqual(received!.signature, expected);
-    assert.strictEqual(JSON.parse(received!.body).id, order.id);
+    const delivery = JSON.parse(received!.body);
+    assert.strictEqual(delivery.event, 'order.created');
+    assert.ok(!Number.isNaN(Date.parse(delivery.timestamp)));
+    assert.deepStrictEqual([delivery.data.id, delivery.data.total, delivery.data.status], [order.id, order.total.toFixed(2), 2]);
     await assert.rejects(storeApi.asApp(store).request('DELETE', '/api/v1/integrations/webhooks/999'), /Webhook not found/);
+  });
+
+  it('suspends deliveries while the app is uninstalled and resumes them on reinstall', async () => {
+    const store = await install(['orders.read', 'webhooks.manage']);
+    const bodies: string[] = [];
+    const receiver = await serve(async (req, res) => {
+      bodies.push(await readBody(req));
+      sendJson(res, 200, {});
+    });
+    await storeApi.asApp(store).request('POST', '/api/v1/integrations/webhooks', {
+      body: { endpoint: receiver.url, events: ['order.created'], description: 'test', status: 'enabled' },
+    });
+    const order = () => FakeStore.rawOrder(platform.store.store(domain).addOrder());
+
+    try {
+      platform.hub.uninstall(app.appId, domain);
+      assert.deepStrictEqual(await platform.store.deliver(domain, 'order.created', order()), [], 'nothing is sent while uninstalled');
+
+      platform.hub.install(app.appId, { store: domain, scopes: ['orders.read', 'webhooks.manage'] });
+      await platform.store.deliver(domain, 'order.created', order());
+      assert.strictEqual(bodies.length, 1, 'reinstalling resumes it');
+    } finally {
+      await receiver.close();
+    }
+  });
+
+  it('filters orders by when they were created or updated', async () => {
+    const store = await install(['orders.read']);
+    const fixture = platform.store.store(domain);
+    const old = fixture.addOrder({ createdAt: '2026-01-01T00:00:00.000Z' });
+    const recent = fixture.addOrder();
+    const ids = async (query: Record<string, string>) =>
+      ((await storeApi.asApp(store).get('/api/v1/orders', { ...query, limit: 100 })) as { data: { id: string }[] }).data.map((o) => o.id);
+
+    const since = await ids({ 'filters[createdAt]': '2026-06-01T00:00:00Z' });
+    assert.ok(since.includes(recent.id) && !since.includes(old.id), 'a bare date means since');
+
+    const before = await ids({ 'filters[createdAt]': '<2026-06-01T00:00:00Z' });
+    assert.ok(before.includes(old.id) && !before.includes(recent.id));
   });
 
   it('stops accepting the credential once the app is uninstalled', async () => {

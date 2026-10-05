@@ -5,6 +5,27 @@ import { RunningServer, bearer, readJsonBody, sendJson, serve } from './net.js';
 
 export type OrderStatus = 'pending' | 'processing' | 'on_hold' | 'completed' | 'canceled';
 
+// The store's own numbers for an order's status, as a delivery's `data` carries them.
+const STATUS_NUMBERS: Record<OrderStatus, number> = { completed: 1, processing: 2, pending: 3, canceled: 5, on_hold: 6 };
+
+// filters[createdAt] and filters[updatedAt]: a bare date means "since"; >, >=, < and <= compare.
+function matchesDateFilters(order: FakeOrder, url: URL): boolean {
+  for (const field of ['createdAt', 'updatedAt'] as const) {
+    const raw = url.searchParams.get(`filters[${field}]`);
+    if (!raw) continue;
+
+    const [, operator = '>=', value] = /^(>=|<=|>|<)?(.+)$/.exec(raw.trim()) ?? [];
+    const bound = Date.parse(value ?? '');
+    const at = Date.parse(order[field]);
+    if (Number.isNaN(bound)) continue;
+
+    const ok = operator === '>' ? at > bound : operator === '<' ? at < bound : operator === '<=' ? at <= bound : at >= bound;
+    if (!ok) return false;
+  }
+
+  return true;
+}
+
 export interface FakeAddress {
   firstName: string | null;
   lastName: string | null;
@@ -117,7 +138,7 @@ export class StoreFixture {
   private readonly team = new Map<string, TeamMember>();
   readonly webhookList: FakeWebhook[] = [];
   private nextOrderNo = 1001;
-  private clock = Date.parse('2026-09-01T09:00:00Z');
+  private lastStamp = 0;
 
   constructor(readonly domain: string) {}
 
@@ -139,7 +160,7 @@ export class StoreFixture {
     } = {}
   ): FakeOrder {
     const orderNo = overrides.orderNo ?? this.nextOrderNo++;
-    const createdAt = overrides.createdAt ?? new Date((this.clock += 60_000)).toISOString();
+    const createdAt = overrides.createdAt ?? this.now();
     const email = overrides.email ?? `buyer${orderNo}@example.test`;
     const firstName = overrides.firstName ?? 'Nadia';
     const lastName = overrides.lastName ?? 'Rahman';
@@ -171,8 +192,14 @@ export class StoreFixture {
 
   updateOrder(id: string, patch: Partial<Pick<FakeOrder, 'status' | 'paymentStatus' | 'total'>>): FakeOrder {
     const order = this.requireOrder(id);
-    Object.assign(order, patch, { updatedAt: new Date((this.clock += 60_000)).toISOString() });
+    Object.assign(order, patch, { updatedAt: this.now() });
     return order;
+  }
+
+  // Real time, at least a millisecond apart, so newest-first and since-filters behave as on a store.
+  private now(): string {
+    this.lastStamp = Math.max(Date.now(), this.lastStamp + 1);
+    return new Date(this.lastStamp).toISOString();
   }
 
   order(id: string): FakeOrder | undefined {
@@ -219,13 +246,15 @@ export class FakeStore {
     return fixture;
   }
 
-  /** Sends an event to every subscription for it, signed the way the store signs: HMAC-SHA256 of the raw body. */
-  async deliver(domain: string, event: string, model: Record<string, unknown>): Promise<Delivery[]> {
-    const body = JSON.stringify(model);
+  /** Sends an event the way the store does: `{event, timestamp, data}`, signed with HMAC-SHA256 of the raw body. */
+  async deliver(domain: string, event: string, data: Record<string, unknown>): Promise<Delivery[]> {
+    const body = JSON.stringify({ event, timestamp: new Date().toISOString(), data });
     const sent: Delivery[] = [];
 
     for (const webhook of this.store(domain).webhookList) {
       if (webhook.status !== 'enabled' || !webhook.events.includes(event)) continue;
+      // Uninstalling suspends an app's subscriptions; reinstalling resumes them.
+      if (!this.hub.findInstallation(webhook.appId, domain)?.active) continue;
 
       const signature = crypto.createHmac('sha256', webhook.secret).update(body).digest('hex');
       let status = 0;
@@ -249,14 +278,14 @@ export class FakeStore {
     return sent;
   }
 
-  /** The raw model a delivery carries: snake_case and without the API's relations, so apps re-fetch. */
+  /** The order as a delivery's `data` carries it: the stored record, snake_case, money as decimal strings, status as a number. */
   static rawOrder(order: FakeOrder): Record<string, unknown> {
     return {
       id: order.id,
       order_no: order.orderNo,
-      status: order.status,
+      status: STATUS_NUMBERS[order.status],
       payment_status: order.paymentStatus,
-      total: order.total,
+      total: order.total.toFixed(2),
       created_at: order.createdAt,
       updated_at: order.updatedAt,
     };
@@ -374,7 +403,9 @@ export class FakeStore {
   private listOrders(res: ServerResponse, fixture: StoreFixture, url: URL): void {
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 15), 1), 100);
     const newestFirst = (url.searchParams.get('sort') ?? '-createdAt') === '-createdAt';
-    const sorted = [...fixture.orderList].sort((a, b) => (newestFirst ? -1 : 1) * a.createdAt.localeCompare(b.createdAt));
+    const sorted = [...fixture.orderList]
+      .filter((order) => matchesDateFilters(order, url))
+      .sort((a, b) => (newestFirst ? -1 : 1) * a.createdAt.localeCompare(b.createdAt));
     const total = sorted.length;
 
     if (url.searchParams.get('paginate') !== 'full') {

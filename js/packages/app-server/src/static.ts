@@ -42,7 +42,7 @@ export async function serveWebApp(
   const pages = options.pages ?? (options.config ? pagePaths(options.config) : []);
 
   if (pages.includes(pathname)) {
-    const index = await fs.readFile(path.join(options.root, 'index.html'), 'utf8');
+    const index = await fs.readFile(path.join(path.resolve(options.root), 'index.html'), 'utf8');
     const body = index.replace('</head>', `  <meta name="flycom-app-id" content="${escapeHtml(options.appId)}">\n  </head>`);
 
     res.writeHead(200, {
@@ -68,8 +68,10 @@ export async function serveWebApp(
     return false;
   }
 
-  const assets = path.join(options.root, 'assets');
-  const file = path.resolve(options.root, `.${decoded}`);
+  // Absolute on both sides, or a relative root never matches the resolved file.
+  const root = path.resolve(options.root);
+  const assets = path.join(root, 'assets');
+  const file = path.resolve(root, `.${decoded}`);
   const type = CONTENT_TYPES[path.extname(file)];
 
   if (!file.startsWith(assets + path.sep) || !type) {

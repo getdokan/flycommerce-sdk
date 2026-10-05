@@ -15,8 +15,16 @@ POST <your endpoint>
 Content-Type: application/json
 X-Webhook-Signature: <hex HMAC-SHA256>
 
-{ …event payload… }
+{"event":"order.created","timestamp":"2026-10-05T10:00:00+00:00","data":{"id":"01J…","total":"120.00","status":2,…}}
 ```
+
+- `event`: the event you subscribed to.
+- `timestamp`: when the store sent it, in ISO 8601. It's part of the signed body.
+- `data`: the record **as the store keeps it**, which is not the API's response shape: snake_case field names, money as decimal strings (`"120.00"`), statuses as the store's own values (often numbers), and no relations. When you need a stable shape, take `data.id` and fetch the record from the store API.
+
+## Which store sent it
+
+A delivery doesn't name its store. Subscribe once per store, with an endpoint that says which store it's for, for example `https://your-app.example/webhooks?store=<store>`. Then check the signature with **that store's** secret. A delivery that verifies under a store's secret came from that store; the query string alone proves nothing.
 
 ## Verifying the signature
 
@@ -32,7 +40,7 @@ Answer the same way for an unknown store and a bad signature, so your endpoint d
 ## Delivery
 
 - Each event is sent **once**. A failed delivery is recorded in the store's webhook log, and is **not retried**.
-- There is **no timestamp or event ID** in the request yet. You can't tell a replayed delivery from a new one by the request alone, so make handlers idempotent: key on the resource's ID and its last update time.
+- There is **no delivery ID** yet, and `timestamp` is when the store sent the event, not a unique ID. Make handlers idempotent: key on the record's ID and its last update time.
 - **Answer fast.** Record the work and return `2xx`, then do it in the background.
 
 ## Lifecycle
@@ -43,4 +51,4 @@ Answer the same way for an unknown store and a bad signature, so your endpoint d
 
 ## Planned
 
-Retries with backoff, a delivery ID, and a timestamp covered by the signature (for replay protection). When they ship, this document and the SDKs change together, and the current header keeps working through a deprecation period.
+Retries with backoff, a delivery ID, and the store named in each request. When they ship, this document and the SDKs change together, and the current header keeps working through a deprecation period.
