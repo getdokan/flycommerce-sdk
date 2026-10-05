@@ -40,6 +40,11 @@ export interface StoreClient {
 
 type TokenSource = { kind: 'app' } | { kind: 'user'; dashboard: DashboardSession };
 
+/** True when the store refused the app because it was uninstalled or rejected: stop serving that store. */
+export function isInstallationRevoked(error: unknown): boolean {
+  return error instanceof HttpError && error.code === 'installation_revoked';
+}
+
 export class StoreApi {
   private readonly userTokens = new Map<string, { token: string; expiresAt: number }>();
 

@@ -56,26 +56,31 @@ http
 
 ### Webhooks
 
-Subscribe in `handleInstall`'s `onInstalled`, which runs before the merchant is sent back. Give each store its own endpoint, and check every delivery against that store's secret before reading it:
+Subscribe in `handleInstall`'s `onInstalled`, which runs before the merchant is sent back. `reconcileWebhook` leaves exactly one subscription per endpoint and returns its secret; keep that sealed. If `onInstalled` fails, the install still completes, so call `reconcileWebhook` again on startup for any store with no secret.
 
 ```ts
-import { readRawBody, verifyWebhookSignature, type WebhookDelivery } from '@flycommerce/app-server';
+import { readWebhook, reconcileWebhook } from '@flycommerce/app-server';
 
+// In handleInstall's options:
+onInstalled: async (store) => {
+  const endpoint = `https://my-app.example/webhooks?store=${store}`;
+  const { secret } = await reconcileWebhook(api.asApp(store), { endpoint, events: ['order.created'] });
+  webhookSecrets.set(store, secret);
+},
+
+// The endpoint: the store comes from `?store=` and is trusted only because the body verifies under its secret.
 if (url.pathname === '/webhooks') {
-  const raw = await readRawBody(req);
-  const secret = webhookSecrets.get(url.searchParams.get('store') ?? '');
-
-  if (!secret || !verifyWebhookSignature(raw, req.headers['x-webhook-signature'], secret)) {
-    return json(res, 401, { error: 'invalid_signature' });
-  }
-
-  const delivery = JSON.parse(raw) as WebhookDelivery;
+  const { store, delivery } = await readWebhook(req, (s) => webhookSecrets.get(s));
   // delivery.event, delivery.timestamp, delivery.data
   return json(res, 200, {});
 }
 ```
 
-`data` is the record as the store keeps it (snake_case, money as decimal strings). See [`spec/webhooks.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/webhooks.md).
+`readWebhook` answers an unknown store and a bad signature with the same `401`. `data` is the record as the store keeps it (snake_case, money as decimal strings). See [`spec/webhooks.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/webhooks.md).
+
+### Uninstalls
+
+Nobody tells an app it was removed: the store just refuses its credential. `isInstallationRevoked(error)` recognises that refusal, so the app can stop serving the store and `credentials.delete(store)`.
 
 ### Configuration
 
@@ -91,7 +96,7 @@ if (url.pathname === '/webhooks') {
 | `FRAME_ANCESTORS`             | no       | Dashboards allowed to frame your pages                                                               |
 | `CREDENTIALS_FILE`            | no       | Where `FileCredentialStore` keeps store credentials (default `data/credentials.json`)                |
 
-`FileCredentialStore` suits a single instance: it writes atomically with `0600` permissions. Running more than one instance? Implement `CredentialStore` (`get`, `put`, `delete`) on your database.
+`FileCredentialStore` suits a single instance: it writes atomically with `0600` permissions. Pass `{ sealer: new Sealer(key) }` to keep every credential encrypted on disk. Running more than one instance? Implement `CredentialStore` (`get`, `put`, `delete`) on your database.
 
 ## Security
 
