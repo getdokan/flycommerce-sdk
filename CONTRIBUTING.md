@@ -17,7 +17,7 @@ ai/claude/                Claude Code plugins, one folder each
 .claude-plugin/           the marketplace that lists them
 ```
 
-Each language has its own folder and its own CI. Each package has its own version, changelog and release.
+Each language has its own folder and its own CI. Each package has its own changelog. The JavaScript packages share one version number: a release of any of them releases all of them, so an app only ever needs the same version of each.
 
 ## Develop
 
@@ -74,10 +74,10 @@ Maintainers only. Releases are published by GitHub Actions. The one exception is
 
 Publishing stays switched off until the repository variable `NPM_PUBLISH_ENABLED` is `true`. An admin sets it once each package's first version is on npm and its Trusted Publisher is configured.
 
-1. Merged changesets collect in a pull request titled **"Version Packages"**. The release workflow keeps it up to date: new versions, each package's `CHANGELOG.md`, and bumps for packages that depend on a changed one.
+1. Merged changesets collect in a pull request titled **"Version Packages"**. The release workflow keeps it up to date: the next version for every package, and each package's `CHANGELOG.md`.
 2. Review it, and squash-merge it when CI is green.
 3. The publish job waits for approval in the **`release` environment**. A maintainer approves it in the workflow run.
-4. The workflow publishes the changed packages to npm with provenance, then tags each one (`@flycommerce/app-server@0.2.0`) and creates its GitHub release.
+4. The workflow publishes every package to npm with provenance, then tags each one (`@flycommerce/app-server@0.2.0`) and creates its GitHub release.
 5. Check:
 
    ```bash
