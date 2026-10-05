@@ -1,0 +1,34 @@
+{
+  "name": "flycommerce",
+  "owner": {
+    "name": "FlyCommerce",
+    "url": "https://github.com/getdokan"
+  },
+  "description": "FlyCommerce plugins for Claude Code: apps, the store API, the store MCP server and the UI library.",
+  "plugins": [
+    {
+      "name": "flycommerce-apps",
+      "source": "./ai/claude/flycommerce-apps",
+      "description": "Build FlyCommerce apps that merchants install: installs, session tokens, dashboard pages, store API calls, webhooks, private and listed apps. Brings in flycommerce-api and flycommerce-ui."
+    },
+    {
+      "name": "flycommerce-api",
+      "source": "./ai/claude/flycommerce-api",
+      "description": "Call a FlyCommerce store's REST API from an app or a script: tokens, finding endpoints, filters, paging, sync, errors and webhooks."
+    },
+    {
+      "name": "flycommerce-mcp",
+      "source": "./ai/claude/flycommerce-mcp",
+      "description": "Connect an AI agent or agent platform to a FlyCommerce store's MCP server: tools, identity, checkout hand-off and errors."
+    },
+    {
+      "name": "flycommerce-ui",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/getdokan/flycommerce-ui.git",
+        "path": "plugin"
+      },
+      "description": "Build FlyCommerce screens with the @flycommerce/ui design system: components, tokens, icons and screen recipes."
+    }
+  ]
+}

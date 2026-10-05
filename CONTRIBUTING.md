@@ -13,6 +13,8 @@ js/                       npm workspaces
   packages/app-server/
   packages/app-testing/
   .changeset/             pending release notes
+ai/claude/                Claude Code plugins, one folder each
+.claude-plugin/           the marketplace that lists them
 ```
 
 Each language has its own folder and its own CI. Each package has its own version, changelog and release.
@@ -55,6 +57,16 @@ Tests use Node's built-in runner (`node --test`). The React hooks in `app-bridge
    Pick the changed packages and the bump: `patch` for fixes, `minor` for features. While packages are `0.x`, a breaking change is a `minor`. Write the note for the developers who'll read the changelog. Commit the generated `.changeset/*.md` file. CI fails a PR that changes a package without one. If a change needs no release, run `npx changeset --empty`.
 
 4. Open the PR. CI must be green. PRs are squash-merged.
+
+## Claude Code plugins
+
+There's no publish step: developers get whatever is on `main` when they update the marketplace. So in the same pull request as a plugin change:
+
+- bump `version` in its `.claude-plugin/plugin.json`, or installed copies won't update;
+- add a section to its `CHANGELOG.md`;
+- run `claude plugin validate --strict .` and the same on the plugin's folder (the `ai` workflow does both).
+
+A skill states FlyCommerce's rules and points at the published docs for detail. When the platform changes, update the docs first, then the skill.
 
 ## Releasing
 
