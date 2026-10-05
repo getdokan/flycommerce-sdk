@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Sealer } from './sealer.js';
 
 export interface StoreCredential {
   clientId: string;
@@ -29,17 +30,27 @@ export class MemoryCredentialStore implements CredentialStore {
   }
 }
 
-// One JSON file is enough for an internal app running as a single instance.
+type Stored = StoreCredential | string;
+
+// One JSON file is enough for an app running as a single instance. Pass a Sealer to keep each credential encrypted.
 export class FileCredentialStore implements CredentialStore {
-  constructor(private readonly file: string) {}
+  constructor(
+    private readonly file: string,
+    private readonly options: { sealer?: Sealer } = {}
+  ) {}
 
   get(store: string): StoreCredential | undefined {
-    return this.read()[store];
+    const stored = this.read()[store];
+
+    if (typeof stored !== 'string') return stored;
+    if (!this.options.sealer) throw new Error(`The credential for ${store} is sealed; pass the Sealer that sealed it.`);
+
+    return JSON.parse(this.options.sealer.open(stored)) as StoreCredential;
   }
 
   put(store: string, credential: StoreCredential): void {
     const all = this.read();
-    all[store] = credential;
+    all[store] = this.options.sealer ? this.options.sealer.seal(JSON.stringify(credential)) : credential;
     this.write(all);
   }
 
@@ -50,7 +61,7 @@ export class FileCredentialStore implements CredentialStore {
     this.write(all);
   }
 
-  private write(all: Record<string, StoreCredential>): void {
+  private write(all: Record<string, Stored>): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
 
     // Written beside the file and renamed over it, so a crash mid-write never loses every store's credential.
@@ -60,7 +71,7 @@ export class FileCredentialStore implements CredentialStore {
     fs.renameSync(temporary, this.file);
   }
 
-  private read(): Record<string, StoreCredential> {
+  private read(): Record<string, Stored> {
     let raw: string;
 
     try {
