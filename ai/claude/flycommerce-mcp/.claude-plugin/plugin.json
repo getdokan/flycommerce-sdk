@@ -1,0 +1,18 @@
+{
+  "name": "flycommerce-mcp",
+  "version": "0.1.0",
+  "description": "Connect an AI agent or agent platform to a FlyCommerce store's MCP server: tools, identity, checkout hand-off and errors.",
+  "author": {
+    "name": "FlyCommerce",
+    "url": "https://github.com/getdokan"
+  },
+  "homepage": "https://developers.flycommerce.com/docs",
+  "repository": "https://github.com/getdokan/flycommerce-sdk",
+  "license": "MIT",
+  "keywords": [
+    "flycommerce",
+    "mcp",
+    "ucp",
+    "agents"
+  ]
+}
