@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { AppConfig, AppConfigError, checkAppConfig, loadAppConfig, pagePaths } from '../app-config.js';
-import { APP_CONFIG_PATH, serveWebApp } from '../static.js';
+import { serveWebApp } from '../static.js';
 
 const valid: AppConfig = {
   appId: 'app-123',
@@ -72,7 +72,7 @@ describe('app-config.json', () => {
     assert.throws(() => loadAppConfig(write('{ nope')), AppConfigError);
   });
 
-  it('is served where FlyCommerce checks it, with its pages', async () => {
+  it('serves its pages and nothing else', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'web-'));
     fs.writeFileSync(path.join(root, 'index.html'), '<html><head></head><body></body></html>');
     const server = http.createServer(async (req, res) => {
@@ -84,11 +84,10 @@ describe('app-config.json', () => {
     const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 
     try {
-      const served = await fetch(`${base}${APP_CONFIG_PATH}`);
-      assert.strictEqual(served.status, 200);
-      assert.deepStrictEqual(await served.json(), valid);
       assert.strictEqual((await fetch(`${base}/settings/team`)).status, 200);
       assert.strictEqual((await fetch(`${base}/not-a-page`)).status, 404);
+      // FlyCommerce takes app-config.json from the portal upload; the app never publishes it.
+      assert.strictEqual((await fetch(`${base}/.well-known/flycom-app-config.json`)).status, 404);
     } finally {
       server.close();
     }

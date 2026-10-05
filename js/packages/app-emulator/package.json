@@ -1,6 +1,6 @@
 {
-  "name": "@flycommerce/app-testing",
-  "description": "Fakes of the FlyCommerce platform for testing and running apps locally: hub, store, dashboard, and an OAuth 2.0 provider kit.",
+  "name": "@flycommerce/app-emulator",
+  "description": "A local emulator of the FlyCommerce platform for developing and testing apps: hub, store, dashboard, and an OAuth 2.0 provider kit.",
   "version": "0.1.0",
   "license": "MIT",
   "author": "FlyCommerce",
@@ -13,16 +13,17 @@
     "access": "public",
     "provenance": true
   },
-  "homepage": "https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/app-testing#readme",
+  "homepage": "https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/app-emulator#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/getdokan/flycommerce-sdk.git",
-    "directory": "js/packages/app-testing"
+    "directory": "js/packages/app-emulator"
   },
   "keywords": [
     "flycommerce",
+    "emulator",
+    "local-development",
     "testing",
-    "fakes",
     "embedded-apps",
     "sdk"
   ],

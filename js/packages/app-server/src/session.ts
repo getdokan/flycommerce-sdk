@@ -25,12 +25,13 @@ export async function authenticate(
       jwksUrl: config.jwksUrl,
       allowedIssuers: config.allowedIssuers,
     });
-  } catch (error) {
-    throw new HttpError(401, 'invalid_session_token', (error as Error).message);
+  } catch {
+    // Which check failed is a hint to whoever forged the token, so the answer never says.
+    throw new HttpError(401, 'invalid_session_token', 'The session token is not valid.');
   }
 
   if (!session.store_domain) {
-    throw new HttpError(401, 'invalid_session_token', 'The session token names no store.');
+    throw new HttpError(401, 'invalid_session_token', 'The session token is not valid.');
   }
 
   return { store: session.store_domain, session, token };

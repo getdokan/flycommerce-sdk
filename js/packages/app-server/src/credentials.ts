@@ -45,10 +45,16 @@ export class FileCredentialStore implements CredentialStore {
   }
 
   private read(): Record<string, StoreCredential> {
+    let raw: string;
+
     try {
-      return JSON.parse(fs.readFileSync(this.file, 'utf8'));
-    } catch {
-      return {};
+      raw = fs.readFileSync(this.file, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+      throw error;
     }
+
+    // A corrupt file must stop the app, not read as empty: the next put() would overwrite every other store.
+    return JSON.parse(raw);
   }
 }

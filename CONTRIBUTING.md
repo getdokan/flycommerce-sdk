@@ -11,7 +11,7 @@ spec/                     the contract every SDK follows
 js/                       npm workspaces
   packages/app-bridge/
   packages/app-server/
-  packages/app-testing/
+  packages/app-emulator/
   .changeset/             pending release notes
 ai/claude/                Claude Code plugins, one folder each
 .claude-plugin/           the marketplace that lists them
@@ -40,7 +40,7 @@ Tests use Node's built-in runner (`node --test`). The React hooks in `app-bridge
 - **ESM only**, with types. No CommonJS build.
 - **Every network call has a timeout.**
 - **Never put a token, secret or customer data in an error message or a log line.**
-- **The protocol names stay as they are:** the `flycom-app-id` meta tag, `/.well-known/flycom-app-config.json` and the bridge message names. The platform reads them. Changing one is a breaking change on both sides.
+- **The bridge message names stay as they are.** The dashboard reads them, so changing one is a breaking change on both sides.
 - **A change to the contract** (token claims, webhook signature) **starts in [`spec/`](https://github.com/getdokan/flycommerce-sdk/tree/main/spec)**, in the same PR as the code.
 
 ## Pull requests
@@ -70,7 +70,7 @@ A skill states FlyCommerce's rules and points at the published docs for detail. 
 
 ## Releasing
 
-Maintainers only. Releases are published by GitHub Actions; nobody publishes from a laptop.
+Maintainers only. Releases are published by GitHub Actions. The one exception is each package's very first version, published once by an admin, because npm needs a package to exist before Trusted Publishing can be set up for it.
 
 Publishing stays switched off until the repository variable `NPM_PUBLISH_ENABLED` is `true`. An admin sets it once each package's first version is on npm and its Trusted Publisher is configured.
 

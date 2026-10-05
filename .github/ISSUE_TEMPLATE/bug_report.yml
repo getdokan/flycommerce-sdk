@@ -12,7 +12,7 @@ body:
       options:
         - '@flycommerce/app-bridge'
         - '@flycommerce/app-server'
-        - '@flycommerce/app-testing'
+        - '@flycommerce/app-emulator'
     validations:
       required: true
   - type: input

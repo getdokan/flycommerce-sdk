@@ -13,6 +13,8 @@ Server-side building blocks for FlyCommerce apps, on Node's own `http` module an
 
 ## Install
 
+> **Not on npm yet.** The first release comes with FlyCommerce's app platform launch. Until then, build it from this repository.
+
 ```bash
 npm install @flycommerce/app-server
 ```
@@ -56,14 +58,15 @@ http
 
 `appServerConfigFromEnv()` reads:
 
-| Variable                      | Required | Meaning                                                                               |
-| ----------------------------- | -------- | ------------------------------------------------------------------------------------- |
-| `APP_ID`, `APP_SECRET`        | yes      | From the developer portal                                                             |
-| `HUB_API_URL`                 | yes      | FlyCommerce's API, e.g. `https://app.flycommerce.com/api`                             |
-| `REDIRECT_URI`                | yes      | Your install redirect, exactly as registered                                          |
-| `JWKS_URL`, `ALLOWED_ISSUERS` | no       | Derived from `HUB_API_URL`                                                            |
-| `FRAME_ANCESTORS`             | no       | Dashboards allowed to frame your pages                                                |
-| `CREDENTIALS_FILE`            | no       | Where `FileCredentialStore` keeps store credentials (default `data/credentials.json`) |
+| Variable                      | Required | Meaning                                                                                              |
+| ----------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| `APP_ID`, `APP_SECRET`        | yes      | From the developer portal                                                                            |
+| `HUB_API_URL`                 | yes      | FlyCommerce's API, `https://developers.flycommerce.com/api`                                          |
+| `REDIRECT_URI`                | yes      | Your install redirect, exactly as registered                                                         |
+| `JWKS_URL`, `ALLOWED_ISSUERS` | no       | FlyCommerce's: `https://app.flycommerce.com/.well-known/jwks.json` and `https://app.flycommerce.com` |
+| `STORE_BASE_URL`              | no       | Local development only: sends every store's calls, tokens included, to this one host                 |
+| `FRAME_ANCESTORS`             | no       | Dashboards allowed to frame your pages                                                               |
+| `CREDENTIALS_FILE`            | no       | Where `FileCredentialStore` keeps store credentials (default `data/credentials.json`)                |
 
 `FileCredentialStore` suits a single instance: it writes atomically with `0600` permissions. Running more than one instance? Implement `CredentialStore` on your database.
 
