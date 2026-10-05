@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import crypto from 'node:crypto';
 import { verifySessionToken, clearJwksCache } from '@flycommerce/app-bridge/server';
-import { HttpError, HubClient, MemoryCredentialStore, StoreApi } from '@flycommerce/app-server';
+import { HttpError, HubClient, MemoryCredentialStore, StoreApi, reconcileWebhook } from '@flycommerce/app-server';
 import { ExampleDashboard } from '../dashboard.js';
 import { readBody, sendJson, serve } from '../net.js';
 import { FakePlatform, startFakePlatform } from '../platform.js';
@@ -193,6 +193,24 @@ describe('the fake platform', () => {
     } finally {
       await receiver.close();
     }
+  });
+
+  it('reconciles to exactly one subscription per endpoint, with a fresh secret', async () => {
+    const store = await install(['webhooks.manage']);
+    const client = storeApi.asApp(store);
+    const endpoint = 'http://127.0.0.1:9/hooks?store=alpha.flycom.shop';
+
+    const first = await reconcileWebhook(client, { endpoint, events: ['order.created'] });
+    const second = await reconcileWebhook(client, { endpoint, events: ['order.created', 'order.updated'] });
+    const mine = platform.store.store(domain).webhookList.filter((hook) => hook.endpoint === endpoint);
+
+    assert.deepStrictEqual(
+      mine.map((hook) => hook.id),
+      [second.id]
+    );
+    assert.notStrictEqual(first.secret, second.secret);
+    assert.strictEqual(mine[0].secret, second.secret);
+    assert.deepStrictEqual(mine[0].events, ['order.created', 'order.updated']);
   });
 
   it('filters orders by when they were created or updated', async () => {

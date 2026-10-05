@@ -5,11 +5,15 @@ import fs from 'node:fs';
 import type { ServerResponse } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { FileCredentialStore, MemoryCredentialStore } from '../credentials.js';
+import { HttpError } from '../http.js';
+import { Sealer } from '../sealer.js';
+import { isInstallationRevoked } from '../store-api.js';
 import type { HubClient } from '../hub.js';
 import { handleInstall } from '../install.js';
 import { serveWebApp } from '../static.js';
-import { verifyWebhookSignature } from '../webhooks.js';
+import { readWebhook, verifyWebhookSignature } from '../webhooks.js';
 
 const sign = (body: string, secret: string) => crypto.createHmac('sha256', secret).update(body).digest('hex');
 
@@ -119,5 +123,72 @@ describe('handleInstall', () => {
 
     assert.deepStrictEqual(events, ['respond 302']);
     assert.ok(credentials.get('alpha.flycom.shop'), 'the credential is kept');
+  });
+});
+
+describe('readWebhook', () => {
+  const body = '{"event":"order.created","timestamp":"2026-10-05T10:00:00+00:00","data":{"id":"01ORDER1","total":"120.00"}}';
+  const request = (url: string, signature?: string, raw = body) =>
+    Object.assign(Readable.from([Buffer.from(raw)]), { url, headers: { 'x-webhook-signature': signature } }) as never;
+  const secrets: Record<string, string> = { 'alpha.flycom.shop': 'alpha-secret' };
+
+  it('returns the store and the delivery when the body verifies under that store’s secret', async () => {
+    const { store, delivery } = await readWebhook(
+      request('/webhooks?store=alpha.flycom.shop', sign(body, 'alpha-secret')),
+      (s) => secrets[s]
+    );
+
+    assert.strictEqual(store, 'alpha.flycom.shop');
+    assert.deepStrictEqual([delivery.event, delivery.data.id], ['order.created', '01ORDER1']);
+  });
+
+  it('answers an unknown store, a missing store and a bad signature alike', async () => {
+    for (const req of [
+      request('/webhooks?store=other.flycom.shop', sign(body, 'alpha-secret')),
+      request('/webhooks', sign(body, 'alpha-secret')),
+      request('/webhooks?store=alpha.flycom.shop', sign(body, 'wrong')),
+    ]) {
+      await assert.rejects(
+        readWebhook(req, (s) => secrets[s]),
+        (error: HttpError) => error.status === 401 && error.code === 'invalid_signature'
+      );
+    }
+  });
+
+  it('refuses a signed body that is not a delivery', async () => {
+    const raw = '{"hello":"world"}';
+    await assert.rejects(
+      readWebhook(request('/webhooks?store=alpha.flycom.shop', sign(raw, 'alpha-secret'), raw), (s) => secrets[s]),
+      (error: HttpError) => error.status === 400
+    );
+  });
+});
+
+describe('FileCredentialStore with a Sealer', () => {
+  const sealer = new Sealer(Buffer.alloc(32, 9).toString('base64'));
+  const credential = { clientId: 'id', clientSecret: 'very-secret', scope: 'orders.read' };
+
+  it('keeps credentials encrypted on disk and reads them back', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'credentials-')), 'credentials.json');
+    new FileCredentialStore(file, { sealer }).put('alpha.flycom.shop', credential);
+
+    assert.ok(!fs.readFileSync(file, 'utf8').includes('very-secret'), 'the secret is not on disk in the clear');
+    assert.deepStrictEqual(new FileCredentialStore(file, { sealer }).get('alpha.flycom.shop'), credential);
+    assert.throws(() => new FileCredentialStore(file).get('alpha.flycom.shop'), /sealed/);
+  });
+
+  it('still reads credentials written before sealing was turned on', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'credentials-')), 'credentials.json');
+    new FileCredentialStore(file).put('alpha.flycom.shop', credential);
+
+    assert.deepStrictEqual(new FileCredentialStore(file, { sealer }).get('alpha.flycom.shop'), credential);
+  });
+});
+
+describe('isInstallationRevoked', () => {
+  it('recognises the store refusing an uninstalled app, and nothing else', () => {
+    assert.strictEqual(isInstallationRevoked(new HttpError(409, 'installation_revoked')), true);
+    assert.strictEqual(isInstallationRevoked(new HttpError(401, 'session_expired')), false);
+    assert.strictEqual(isInstallationRevoked(new Error('installation_revoked')), false);
   });
 });
