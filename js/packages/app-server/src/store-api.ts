@@ -143,6 +143,11 @@ export class StoreApi {
       throw new HttpError(502, 'access_token_failed', `Could not get an access token: the store answered ${response.status}.`);
     }
 
+    // One entry per login would otherwise outlive every login.
+    for (const [cachedKey, entry] of this.userTokens) {
+      if (entry.expiresAt <= Date.now()) this.userTokens.delete(cachedKey);
+    }
+
     // Renew a minute early so a token never expires mid-request.
     this.userTokens.set(key, { token: body.access_token, expiresAt: Date.now() + (Number(body.expires_in) - 60) * 1000 });
 
@@ -161,8 +166,20 @@ export class StoreApi {
     options: { query?: Query; body?: unknown },
     retried: boolean
   ): Promise<T> {
+    const base = new URL(this.baseUrl(store));
+
+    // The path joins the store's URL as text, so anything but "/…" could carry the store's token to another host.
+    if (!path.startsWith('/')) {
+      throw new TypeError(`A store API path starts with "/": ${path}`);
+    }
+
+    const url = new URL(`${base.origin}${base.pathname.replace(/\/+$/, '')}${path}`);
+
+    if (url.origin !== base.origin) {
+      throw new TypeError(`A store API path must stay on the store: ${path}`);
+    }
+
     const token = await this.token(store, source);
-    const url = new URL(`${this.baseUrl(store)}${path}`);
 
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value !== undefined) {

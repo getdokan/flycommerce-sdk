@@ -33,12 +33,15 @@ Out of scope here: FlyCommerce's hosted services (the dashboard, stores, the API
 
 ## How releases are protected
 
-- Packages are published from GitHub Actions with npm Trusted Publishing and [provenance](https://docs.npmjs.com/generating-provenance-statements). No long-lived npm tokens exist.
-- Publishing needs a maintainer's approval in the `release` environment.
-- The published packages have no runtime dependencies.
-- Every GitHub Action is pinned to a full commit SHA, and Dependabot keeps them and the dev dependencies current.
+The packages aren't on npm yet. From their first release:
 
-To check that a package you installed was built from this repository:
+- They're published from GitHub Actions with npm Trusted Publishing and [provenance](https://docs.npmjs.com/generating-provenance-statements), so no long-lived npm token exists.
+- Every release needs a maintainer's approval in the `release` environment.
+- Their only runtime dependency is each other: `app-server` and `app-emulator` use `app-bridge`.
+
+Already true today: every GitHub Action is pinned to a full commit SHA, and Dependabot keeps them and the dev dependencies current.
+
+Once a package is published, check that what you installed was built from this repository:
 
 ```bash
 npm audit signatures

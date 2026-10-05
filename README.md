@@ -6,13 +6,15 @@ Tools for building apps on [FlyCommerce](https://flycommerce.com): apps that mer
 
 ## Packages
 
+> **Preview.** The packages aren't on npm yet; the first release comes with FlyCommerce's app platform launch.
+
 ### JavaScript and TypeScript
 
 | Package | What it's for | Install as |
 | --- | --- | --- |
 | [`@flycommerce/app-bridge`](https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/app-bridge) | Your app's pages, running inside the dashboard: session tokens, navigation, title bar, dialogs, dashboard context. React hooks included. | `dependency` of your frontend |
 | [`@flycommerce/app-server`](https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/app-server) | Your app's Node server: check who is asking, finish installs, call the store API as the user or as the app, sign in to third-party services. | `dependency` of your backend |
-| [`@flycommerce/app-testing`](https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/app-testing) | A fake FlyCommerce and store for tests and local development. | `devDependency` |
+| [`@flycommerce/app-emulator`](https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/app-emulator) | A local FlyCommerce emulator (hub, store, dashboard) for local development and tests. | `devDependency` |
 
 Each package has its own version and changelog.
 

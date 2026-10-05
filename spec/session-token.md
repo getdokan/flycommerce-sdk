@@ -34,7 +34,7 @@ A JWT ([RFC 7519](https://www.rfc-editor.org/rfc/rfc7519)) signed with **RS256**
 | `sub` | The user's ID, unique within this store only |
 | `store_domain` | The store, as its permanent platform host (`<name>.flycom.shop`). **The only store you may trust.** Never take the store from a URL, body or header. It doesn't change when the merchant adds or changes a custom domain, so it's safe to key data on. |
 | `marketplace_id` | The store's numeric ID |
-| `user_role` | `owner` (the store owner), `admin` (store staff) or `vendor` (a seller on a marketplace store). New roles may be added; treat an unknown one as the least privileged. Use it to decide what your app lets this user do. |
+| `user_role` | `owner` (the store owner) or `admin` (store staff with admin access): only they can open apps today. `vendor` (a seller on a marketplace store) is reserved for when sellers can. New roles may be added; treat an unknown one as the least privileged. Use it to decide what your app lets this user do. |
 | `app_id` | Your app's ID (same as `aud`) |
 | `installation_id` | This store's installation of your app |
 | `sid` | Identifies the user's dashboard login. Logging out ends tokens from that login. |

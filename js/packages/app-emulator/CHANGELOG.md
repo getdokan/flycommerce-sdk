@@ -1,4 +1,4 @@
-# @flycommerce/app-testing
+# @flycommerce/app-emulator
 
 ## 0.1.0
 

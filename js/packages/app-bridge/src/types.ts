@@ -85,7 +85,7 @@ export interface AppConfig {
   applyContext?: boolean;
 }
 
-// The claims flycom-app's SessionTokenIssuer mints.
+// The claims of a FlyCommerce session token.
 export interface SessionTokenPayload {
   iss: string;
   aud: string;

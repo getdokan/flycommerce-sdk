@@ -17,9 +17,10 @@ export interface ExampleDashboardOptions {
   port?: number;
 }
 
-const ROLES = ['owner', 'admin', 'staff'];
+// The roles FlyCommerce issues session tokens to today.
+const ROLES = ['owner', 'admin'];
 // Each role is a different user, as in a real store; one user switching roles would share one user access token.
-const ROLE_USERS: Record<string, string> = { owner: '1', admin: '2', staff: '3' };
+const ROLE_USERS: Record<string, string> = { owner: '1', admin: '2' };
 
 /** A stand-in for the merchant dashboard: frames the app's pages and answers the bridge like the real one does. */
 export class ExampleDashboard {

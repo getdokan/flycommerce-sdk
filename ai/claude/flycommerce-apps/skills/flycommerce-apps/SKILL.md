@@ -54,7 +54,7 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 - Verify on the server before reading any claim: `alg` is RS256 (refuse anything else, including `none`); the signature verifies with the matching `kid` from `https://app.flycommerce.com/.well-known/jwks.json` (cache an hour, refetch at most every 30 seconds on an unknown `kid`); `exp` and `nbf` hold with a few seconds of leeway; `typ` is `session`; `aud` is the app ID; `iss` is `https://app.flycommerce.com`.
 - On any failure answer `401` with no detail.
 - The store is `store_domain` from the verified token. Never take a store from a URL, body or header.
-- `user_role` is `owner`, `admin` or `vendor`. Treat any other value as the least privileged.
+- `user_role` is `owner` or `admin`: only they can open apps today. `vendor` is reserved for marketplace sellers. Treat any other value as the least privileged.
 
 ### Calling the store
 - Calls go to `https://<store>/api/v1/...` with a bearer token.
@@ -83,7 +83,7 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 - An unpublished app is **private**: it installs only on stores owned by the developer account that owns the app, on a marketplace or a standalone store alike, and no other merchant sees it. Publishing lists it for every merchant, after FlyCommerce's review.
 - A private app's pages and requested permissions apply without review; privileged permissions still need FlyCommerce to grant them.
 - The code is the same either way: still key data by store (the owner may have several stores), and still verify every token. Publishing later changes nothing in the app.
-- On a marketplace store, `vendor` users open the app's pages too. Decide with the developer what a vendor may see, and gate it on `user_role`.
+- On a marketplace store, only the owner and admins open the app's pages today; vendors can't. Still gate on `user_role`, so a later vendor role gets the least access.
 - A private app can't be installed on a store another account owns. If the developer needs that, the answer is publishing it, not a workaround.
 
 ## How to work

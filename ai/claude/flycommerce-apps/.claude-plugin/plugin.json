@@ -1,6 +1,6 @@
 {
   "name": "flycommerce-apps",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Build FlyCommerce apps that merchants install: installs, session tokens, dashboard pages, store API calls, webhooks, private and listed apps. Brings in flycommerce-api and flycommerce-ui.",
   "author": {
     "name": "FlyCommerce",

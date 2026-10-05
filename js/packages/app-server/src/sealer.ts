@@ -8,7 +8,7 @@ export class Sealer {
     this.key = Buffer.from(base64Key, 'base64');
 
     if (this.key.length !== 32) {
-      throw new Error('APP_ENCRYPTION_KEY must be 32 bytes, base64-encoded.');
+      throw new Error('The encryption key must be 32 bytes, base64-encoded.');
     }
   }
 
@@ -21,8 +21,15 @@ export class Sealer {
   }
 
   open(sealed: string): string {
-    const [iv, tag, encrypted] = sealed.split('.').map((part) => Buffer.from(part, 'base64url'));
-    const decipher = crypto.createDecipheriv('aes-256-gcm', this.key, iv);
+    const parts = sealed.split('.').map((part) => Buffer.from(part, 'base64url'));
+    const [iv, tag, encrypted] = parts;
+
+    if (parts.length !== 3 || iv.length !== 12 || tag.length !== 16) {
+      throw new Error('Not a sealed value.');
+    }
+
+    // A short tag would accept forgeries far more often; GCM only checks as many bytes as it is given.
+    const decipher = crypto.createDecipheriv('aes-256-gcm', this.key, iv, { authTagLength: 16 });
     decipher.setAuthTag(tag);
 
     return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
