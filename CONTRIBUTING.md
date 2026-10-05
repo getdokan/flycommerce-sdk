@@ -11,7 +11,7 @@ spec/                     the contract every SDK follows
 js/                       npm workspaces
   packages/app-bridge/
   packages/app-server/
-  packages/app-testing/
+  packages/app-emulator/
   .changeset/             pending release notes
 ai/claude/                Claude Code plugins, one folder each
 .claude-plugin/           the marketplace that lists them

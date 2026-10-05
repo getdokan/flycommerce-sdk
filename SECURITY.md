@@ -37,7 +37,7 @@ The packages aren't on npm yet. From their first release:
 
 - They're published from GitHub Actions with npm Trusted Publishing and [provenance](https://docs.npmjs.com/generating-provenance-statements), so no long-lived npm token exists.
 - Every release needs a maintainer's approval in the `release` environment.
-- Their only runtime dependency is each other: `app-server` and `app-testing` use `app-bridge`.
+- Their only runtime dependency is each other: `app-server` and `app-emulator` use `app-bridge`.
 
 Already true today: every GitHub Action is pinned to a full commit SHA, and Dependabot keeps them and the dev dependencies current.
 
