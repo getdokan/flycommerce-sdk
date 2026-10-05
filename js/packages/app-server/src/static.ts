@@ -18,14 +18,12 @@ export interface WebAppOptions {
   root: string;
   /** Written into each page as <meta name="flycom-app-id">, which appIdFromPage() reads. */
   appId: string;
-  /** The app's app-config.json. Its pages are served, and the file itself at /.well-known/flycom-app-config.json. */
+  /** The app's app-config.json, whose page paths are served. */
   config?: AppConfig;
   /** Paths that render the app, e.g. /overview. Taken from `config` when it is given. */
   pages?: string[];
   frameAncestors?: string[];
 }
-
-export const APP_CONFIG_PATH = '/.well-known/flycom-app-config.json';
 
 /**
  * Serves a built single-page app: hashed assets from /assets/, and index.html on each page path.
@@ -39,18 +37,6 @@ export async function serveWebApp(
 ): Promise<boolean> {
   if (method !== 'GET' && method !== 'HEAD') {
     return false;
-  }
-
-  // FlyCommerce reads this to check the running app is the version being released.
-  if (options.config && pathname === APP_CONFIG_PATH) {
-    res.writeHead(200, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      'X-Content-Type-Options': 'nosniff',
-    });
-    res.end(method === 'HEAD' ? undefined : JSON.stringify(options.config));
-
-    return true;
   }
 
   const pages = options.pages ?? (options.config ? pagePaths(options.config) : []);

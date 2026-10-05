@@ -1,11 +1,14 @@
 import fs from 'node:fs';
 import { CredentialStore, FileCredentialStore } from './credentials.js';
 
+/** Where every region's session tokens are verified: the issuer they name and the keys that sign them. */
+export const FLYCOMMERCE_ORIGIN = 'https://app.flycommerce.com';
+
 export interface AppServerConfig {
   /** The app id from the developer portal: the `aud` of every session token and half of the install exchange. */
   appId: string;
   appSecret: string;
-  /** FlyCommerce's API, e.g. https://app.flycommerce.com/api */
+  /** FlyCommerce's API, e.g. https://developers.flycommerce.com/api */
   hubApiUrl: string;
   /** Exactly as registered in the developer portal; FlyCommerce compares it byte for byte. */
   redirectUri: string;
@@ -35,19 +38,18 @@ export function list(value: string | undefined, fallback: string[]): string[] {
 
 export function appServerConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AppServerConfig {
   const hubApiUrl = required(env, 'HUB_API_URL');
-  const hubOrigin = new URL(hubApiUrl).origin;
 
   return {
     appId: required(env, 'APP_ID'),
     appSecret: required(env, 'APP_SECRET'),
     hubApiUrl,
     redirectUri: required(env, 'REDIRECT_URI'),
-    jwksUrl: env.JWKS_URL ?? `${hubOrigin}/.well-known/jwks.json`,
-    // FlyCommerce signs session tokens with its own origin as the issuer.
-    allowedIssuers: list(env.ALLOWED_ISSUERS, [hubOrigin]),
+    // Fixed rather than taken from HUB_API_URL: the API answers on more than one host, the issuer on one.
+    jwksUrl: env.JWKS_URL ?? `${FLYCOMMERCE_ORIGIN}/.well-known/jwks.json`,
+    allowedIssuers: list(env.ALLOWED_ISSUERS, [FLYCOMMERCE_ORIGIN]),
     frameAncestors: list(env.FRAME_ANCESTORS, ['https://*.flycommerce.com', 'https://*.flycom.shop']),
     credentials: new FileCredentialStore(env.CREDENTIALS_FILE ?? 'data/credentials.json'),
-    // A local setup has no routing for https://{store}; send every store's calls to one local store instead.
+    // Local development only: every store's calls, tokens included, go to this one host.
     storeUrl: env.STORE_BASE_URL ? () => env.STORE_BASE_URL!.replace(/\/+$/, '') : undefined,
   };
 }

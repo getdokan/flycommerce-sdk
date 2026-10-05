@@ -33,7 +33,7 @@ export interface SessionTokenOptions {
   appId: string;
   store: string;
   userId?: string;
-  /** The user's role: owner, admin, or a staff role. */
+  /** The user's role: `owner` or `admin` today; see spec/session-token.md. */
   role?: string;
   ttlSeconds?: number;
   /** Which dashboard login the token was issued under; logout() with the same id ends user access tokens from it. */
@@ -80,7 +80,7 @@ export class FakeHub {
     return `${this.url}/.well-known/jwks.json`;
   }
 
-  /** The `iss` of every session token: FlyCommerce signs with its own origin. */
+  /** The `iss` of every session token; stands in for https://app.flycommerce.com, which every region's tokens name. */
   get issuer(): string {
     return this.url;
   }

@@ -6,6 +6,8 @@ Run your FlyCommerce app's pages inside the merchant dashboard. The bridge gets 
 
 ## Install
 
+> **Not on npm yet.** The first release comes with FlyCommerce's app platform launch. Until then, build it from this repository.
+
 ```bash
 npm install @flycommerce/app-bridge
 ```

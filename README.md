@@ -6,6 +6,8 @@ Tools for building apps on [FlyCommerce](https://flycommerce.com): apps that mer
 
 ## Packages
 
+> **Preview.** The packages aren't on npm yet; the first release comes with FlyCommerce's app platform launch.
+
 ### JavaScript and TypeScript
 
 | Package | What it's for | Install as |

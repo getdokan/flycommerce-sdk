@@ -62,7 +62,7 @@ describe('the fake platform', () => {
   });
 
   it('signs session tokens the SDK verifies, with the role asked for', async () => {
-    const token = platform.hub.sessionToken({ appId: app.appId, store: domain, userId: '42', role: 'staff' });
+    const token = platform.hub.sessionToken({ appId: app.appId, store: domain, userId: '42', role: 'admin' });
 
     const session = await verifySessionToken(token, {
       appId: app.appId,
@@ -72,7 +72,7 @@ describe('the fake platform', () => {
 
     assert.strictEqual(session.store_domain, domain);
     assert.strictEqual(session.sub, '42');
-    assert.strictEqual(session.user_role, 'staff');
+    assert.strictEqual(session.user_role, 'admin');
     await assert.rejects(
       verifySessionToken(token, { appId: 'someone_else', jwksUrl: platform.hub.jwksUrl, allowedIssuers: [platform.hub.issuer] })
     );
@@ -191,8 +191,8 @@ describe('the fake platform', () => {
 
     fixture.setTeamMember('11', { permissions: ['order.view'] });
     fixture.setTeamMember('12', { permissions: ['order.view', 'order.update'] });
-    const viewer = storeApi.asUser(dashboard('11', 'staff'));
-    const clerk = storeApi.asUser(dashboard('12', 'staff', 'clerk-laptop'));
+    const viewer = storeApi.asUser(dashboard('11', 'admin'));
+    const clerk = storeApi.asUser(dashboard('12', 'admin', 'clerk-laptop'));
 
     await assert.rejects(viewer.request('PATCH', `/api/v1/orders/${fixture.addOrder().id}/on-hold`), (error: HttpError) => {
       assert.strictEqual(error.code, 'store_refused');
@@ -214,7 +214,7 @@ describe('the fake platform', () => {
       return true;
     });
 
-    const onPhone = storeApi.asUser(dashboard('12', 'staff', 'clerk-phone'));
+    const onPhone = storeApi.asUser(dashboard('12', 'admin', 'clerk-phone'));
     await onPhone.get('/api/v1/orders');
   });
 
@@ -230,7 +230,7 @@ describe('the fake platform', () => {
 
     const page = await (await fetch(`${dashboard.url}/apps/overview`)).text();
     const missing = await fetch(`${dashboard.url}/apps/nope`);
-    const issued = (await (await fetch(`${dashboard.url}/session-token?role=staff`, { method: 'POST' })).json()) as {
+    const issued = (await (await fetch(`${dashboard.url}/session-token?role=admin`, { method: 'POST' })).json()) as {
       session_token: string;
     };
     const session = await verifySessionToken(issued.session_token, {
@@ -243,6 +243,6 @@ describe('the fake platform', () => {
     assert.match(page, /sandbox="allow-scripts allow-forms allow-popups allow-same-origin allow-modals allow-downloads"/);
     assert.ok(!page.includes('allow-top-navigation'), 'an app can never take over the dashboard tab');
     assert.strictEqual(missing.status, 404);
-    assert.strictEqual(session.user_role, 'staff');
+    assert.strictEqual(session.user_role, 'admin');
   });
 });
