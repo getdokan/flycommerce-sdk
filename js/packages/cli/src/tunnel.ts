@@ -1,6 +1,7 @@
 import { ChildProcess, spawn } from 'node:child_process';
 import { childEnv } from './child.js';
 import { CliError, Context } from './context.js';
+import { printable } from './printable.js';
 
 // The URL alone on its line, as in cloudflared's "Your quick Tunnel has been created!" box; never the API it calls.
 const TUNNEL_LINE = /^(?:\S+\s+)?(?:[A-Z]{3}\s+)?\|?\s*(https:\/\/([a-z0-9-]+)\.trycloudflare\.com)\/?\s*\|?\s*$/;
@@ -13,8 +14,20 @@ export interface Tunnel {
   exited: Promise<void>;
 }
 
+/** The quick tunnel's URL, from a line of cloudflared's output in colour, plain or JSON (TUNNEL_LOGFORMAT=json). */
 export function tunnelUrlFromLine(line: string): string | undefined {
-  const match = TUNNEL_LINE.exec(line.trim());
+  let text = printable(line).trim();
+
+  if (text.startsWith('{')) {
+    try {
+      const { message } = JSON.parse(text) as { message?: unknown };
+      text = typeof message === 'string' ? printable(message).trim() : '';
+    } catch {
+      return undefined;
+    }
+  }
+
+  const match = TUNNEL_LINE.exec(text);
   return match && match[2] !== 'api' ? match[1] : undefined;
 }
 
@@ -48,7 +61,7 @@ export function startCloudflared(ctx: Context, port: number): Promise<Tunnel> {
 
       for (const line of lines) {
         if (line.trim() === '') continue;
-        recent.push(line.replace(/[\x00-\x1f\x7f]/g, '').trim());
+        recent.push(printable(line).trim());
         recent.splice(0, Math.max(0, recent.length - 5));
         const url = tunnelUrlFromLine(line);
 

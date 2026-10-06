@@ -87,7 +87,7 @@ The tunnel URL changes on every run, so `app dev` pushes on every start. The dev
 flycommerce app release --version 1.2.0 --message "Adds a welcome banner on the home page"
 ```
 
-The CLI checks `app-config.json` locally, creates the version with its changelog, and releases it with the config, filling in `versionId` and `version`. A listed app's new pages, permissions and scripts wait for FlyCommerce's review, and the CLI lists them. With `--no-release` it stops after creating the version; running the command again without it releases that same version. FlyCommerce keeps one unreleased version at a time, so while another is waiting the CLI says so and asks you to release or delete it first. If FlyCommerce refuses the config, the CLI prints each problem and exits with `1`.
+The CLI checks `app-config.json` locally, creates the version with its changelog, and releases it with the config, filling in `versionId` and `version`. A listed app's new pages, permissions and scripts wait for FlyCommerce's review, and the CLI lists them. A changed `install.redirectUrl` waits too: until it's approved, merchants still return to the approved URL, so keep that route working. While the app itself waits for review, the version goes live once it's approved. With `--no-release` it stops after creating the version; running the command again without it releases that same version. FlyCommerce keeps one unreleased version at a time, so while another is waiting the CLI says so and asks you to release or delete it first. If FlyCommerce refuses the config, the CLI prints each problem and exits with `1`.
 
 ## CI
 
@@ -113,7 +113,7 @@ Set `FLYCOMMERCE_TOKEN` to a deploy token from the portal's **Credentials** tab.
 - The sign-in uses PKCE (S256) and a random `state`, checked in constant time; an answer with another `state` is refused and nothing is saved.
 - The token goes only to the portal, over `https` (plain `http` only to `localhost`), and never follows a redirect. It's never printed, put in a URL, or passed to the processes `app dev` starts.
 - Only an answer carrying the sign-in's `state` can end it; anything else that calls the loopback is answered `400` and ignored.
-- Text from the portal is printed without control characters.
+- Everything the CLI prints, app names, titles and URLs from the portal included, is stripped of terminal escape sequences, control characters and bidi overrides.
 - Every request has a timeout.
 
 Report vulnerabilities through [SECURITY.md](https://github.com/getdokan/flycommerce-sdk/blob/main/SECURITY.md).

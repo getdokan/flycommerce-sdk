@@ -39,6 +39,9 @@ export interface ReleaseResult {
   versionId: number;
   version: string;
   released: boolean;
-  /** Page slugs, then script handles. */
+  /** Page slugs, then script handles, then install.redirectUrl when the redirect changed. */
   awaitingReview: string[];
+  /** false when the app itself awaits review; read with status, whichever the hub sends. */
+  live?: boolean;
+  status?: AppStatus;
 }

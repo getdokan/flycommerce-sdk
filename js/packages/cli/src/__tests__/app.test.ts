@@ -184,6 +184,68 @@ describe('flycommerce app', () => {
     }
   });
 
+  it("shows the portal's names as plain text: no escape sequences, links or bidi overrides", async () => {
+    const ESC = '\u001b';
+    const evil = `Evil${ESC}]8;;https://phish.example${ESC}\\link${ESC}]8;;${ESC}\\${ESC}[2J${ESC}[31mRED\u202eexe.txt\u2066\u0085\u0007`;
+    portal.addApp({ appId: 'evil-app', name: evil });
+    portal.apps.get('order-export')!.versions.push({ versionId: 1, version: '1.0.0', title: evil, releasedAt: null });
+    fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(production));
+    portal.me = { name: evil, email: `dev@example.com${ESC}[8m` };
+
+    try {
+      const outputs = [
+        await cli('app', 'list'),
+        await cli('whoami'),
+        await cli('app', 'versions'),
+        await cli('app', 'link', '--app', 'nope'),
+      ];
+      const text = outputs.map((result) => result.stdout + result.stderr).join('\n');
+
+      assert.match(text, /evil-app\s+EvillinkREDexe\.txt\s+unpublished/);
+      assert.match(text, /as EvillinkREDexe\.txt <dev@example\.com>/);
+      assert.match(text, /1\.0\.0\s+#1\s+not released\s+EvillinkREDexe\.txt/);
+      assert.match(text, /\(evil-app\)/);
+      assert.ok(!/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(text), JSON.stringify(text));
+    } finally {
+      portal.me = { name: 'Dev Person', email: 'dev@example.com' };
+    }
+  });
+
+  it("doesn't call a version live while the app itself waits for review", async () => {
+    fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(production));
+    portal.apps.get('order-export')!.status = 'pending';
+
+    const pending = await cli('app', 'release', '--version', '1.2.0', '--message', 'x');
+    assert.equal(pending.code, 0, pending.stderr);
+    assert.match(pending.stdout, /Order Export is waiting for FlyCommerce's review, so this version goes live once it's approved/);
+    assert.doesNotMatch(pending.stdout, /Everything in it is live/);
+
+    portal.apps.get('order-export')!.status = 'published';
+    portal.releaseAnswer = { status: 200, body: { versionId: 2, version: '1.3.0', released: true, awaitingReview: [], live: false } };
+    const notLive = await cli('app', 'release', '--version', '1.3.0', '--message', 'x');
+    assert.match(notLive.stdout, /goes live once it's approved/);
+    assert.doesNotMatch(notLive.stdout, /Everything in it is live/);
+  });
+
+  it('says a changed install redirect waits for review, and that merchants still use the approved one', async () => {
+    fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(production));
+    portal.releaseAnswer = {
+      status: 200,
+      body: { versionId: 1, version: '1.2.0', released: true, awaitingReview: ['welcome', 'install.redirectUrl'] },
+    };
+
+    const result = await cli('app', 'release', '--version', '1.2.0', '--message', 'x');
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /Waiting for FlyCommerce's review[^]*  - welcome\n/);
+    assert.doesNotMatch(result.stdout, /  - install\.redirectUrl/);
+    assert.match(
+      result.stdout,
+      /Your install redirect change waits for review; merchants still return to the approved URL until then — keep that route working\./
+    );
+    assert.doesNotMatch(result.stdout, /Everything in it is live/);
+  });
+
   it('tells a developer whose token was refused to sign in again', async () => {
     fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(production));
     const result = await runCli(['app', 'versions', '--portal', portal.url], {

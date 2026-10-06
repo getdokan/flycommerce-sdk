@@ -5,6 +5,7 @@ import { deleteCredential } from './credentials.js';
 import { DEFAULT_COMMAND, DEFAULT_PORT, dev } from './dev.js';
 import { login } from './login.js';
 import { CLI_VERSION, DEFAULT_PORTAL, portalUrl } from './portal.js';
+import { printable } from './printable.js';
 import { release } from './release.js';
 
 export type { Context } from './context.js';
@@ -100,7 +101,14 @@ const OPTIONS: Record<string, Options> = {
 };
 
 /** Runs one command and returns the exit code. */
-export async function run(argv: string[], ctx: Context): Promise<number> {
+export async function run(argv: string[], context: Context): Promise<number> {
+  // Names, titles and URLs come from the portal; whatever they hold, the terminal only shows text.
+  const ctx: Context = {
+    ...context,
+    stdout: (text) => context.stdout(printable(text)),
+    stderr: (text) => context.stderr(printable(text)),
+  };
+
   try {
     return await dispatch(argv, ctx);
   } catch (error) {

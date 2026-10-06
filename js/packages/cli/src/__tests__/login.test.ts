@@ -101,18 +101,16 @@ describe('flycommerce login', () => {
     // Something else on this computer calls the loopback first, then the real answer comes.
     const strayFirst = (url: string) => {
       const loopback = new URL(url).searchParams.get('redirect_uri')!;
-      void fetch(`${loopback}?error=access_denied`)
-        .then((stray) => {
-          assert.equal(stray.status, 400);
-          return fetch(url);
-        })
-        .catch(() => {});
+      void (async () => {
+        for (let i = 0; i < 3; i++) assert.equal((await fetch(`${loopback}?error=access_denied`)).status, 400);
+        await fetch(url);
+      })().catch(() => {});
     };
 
     const result = await runCli(['login', '--portal', portal.url], { env: { XDG_CONFIG_HOME: dir }, cwd: dir, openUrl: strayFirst });
 
     assert.equal(result.code, 0, result.stderr);
-    assert.match(result.stderr, /Ignored an answer/);
+    assert.equal(result.stderr.match(/Ignored an answer/g)?.length, 1, 'said once, however many come');
     assert.ok(fs.existsSync(credentialsPath({ XDG_CONFIG_HOME: dir })));
   });
 

@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import { CliError, Context } from './context.js';
 import { readCredential } from './credentials.js';
+import { printable } from './printable.js';
+
+export { printable };
 
 export const DEFAULT_PORTAL = 'https://developers.flycommerce.com';
 
@@ -159,11 +162,6 @@ export class PortalApi {
 
     return new ApiError(status, code, message, problems, body);
   }
-}
-
-/** Text from the network, without control characters that a terminal would act on. */
-export function printable(text: string): string {
-  return text.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, '');
 }
 
 function problemText(problem: unknown): string {

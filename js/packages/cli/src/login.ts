@@ -14,9 +14,11 @@ export async function login(ctx: Context, portal: string): Promise<void> {
   const verifier = base64url(randomBytes(32));
   const challenge = base64url(createHash('sha256').update(verifier).digest());
   const state = base64url(randomBytes(32));
-  const loopback = await startLoopback(state, ctx.loginTimeoutMs ?? LOGIN_TIMEOUT_MS, ctx.signal, () =>
-    ctx.stderr("Ignored an answer that doesn't match this sign-in (state mismatch). Still waiting…")
-  );
+  let ignored = 0;
+  const loopback = await startLoopback(state, ctx.loginTimeoutMs ?? LOGIN_TIMEOUT_MS, ctx.signal, () => {
+    // Said once: anything on this computer can call the loopback, as often as it likes.
+    if (ignored++ === 0) ctx.stderr("Ignored an answer that doesn't match this sign-in (state mismatch). Still waiting…");
+  });
   const redirectUri = `${loopback.url}/callback`;
 
   const authorize = new URL(`${portal}/cli/authorize`);

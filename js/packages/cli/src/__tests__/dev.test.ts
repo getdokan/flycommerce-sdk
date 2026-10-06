@@ -158,7 +158,7 @@ describe('flycommerce app dev', () => {
     );
 
     assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).REDIRECT_URI, 'https://dev.example.dev/hub/kept');
-    assert.match(again.stdout, /Reinstall to grant: storefront\.scripts\[2J/);
+    assert.match(again.stdout, /Reinstall to grant: storefront\.scripts\n/);
     assert.ok(!again.stdout.includes('\u001b'), 'no terminal escapes from the network');
   });
 
@@ -337,5 +337,20 @@ describe("reading cloudflared's output", () => {
     assert.equal(tunnelUrlFromLine('INF |  https://api.trycloudflare.com  |'), undefined);
     assert.equal(tunnelUrlFromLine('INF Requesting new quick Tunnel on trycloudflare.com...'), undefined);
     assert.equal(tunnelUrlFromLine('INF see https://evil.trycloudflare.com.example.net |'), undefined);
+  });
+
+  it('reads it from coloured output and from JSON logs, with the same rule', () => {
+    const url = 'https://foo-bar-baz.trycloudflare.com';
+    assert.equal(tunnelUrlFromLine(`\u001b[90m2026-10-06T10:00:00Z\u001b[0m \u001b[32mINF\u001b[0m |  ${url}  |`), url);
+    assert.equal(tunnelUrlFromLine(`|  ${url}  |\r`), url);
+    assert.equal(tunnelUrlFromLine(`{"level":"info","time":"2026-10-06T10:00:00Z","message":"|  ${url}  |"}`), url);
+    assert.equal(tunnelUrlFromLine(`{"level":"info","message":"${url}"}`), url);
+    assert.equal(
+      tunnelUrlFromLine('{"level":"error","message":"failed to request quick Tunnel: Post \\"https://api.trycloudflare.com/tunnel\\""}'),
+      undefined
+    );
+    assert.equal(tunnelUrlFromLine('{"level":"info","message":"|  https://api.trycloudflare.com  |"}'), undefined);
+    assert.equal(tunnelUrlFromLine(`{"level":"info","url":"${url}"}`), undefined);
+    assert.equal(tunnelUrlFromLine(`{"message": broken ${url}`), undefined);
   });
 });

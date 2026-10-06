@@ -4,6 +4,8 @@ import { CliError, Context } from './context.js';
 import { ApiError, PortalApi } from './portal.js';
 import { AppDetails, ReleaseResult } from './types.js';
 
+// awaitingReview names the redirect this way, beside page slugs and script handles.
+const REDIRECT_REVIEW_KEY = 'install.redirectUrl';
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 export interface ReleaseOptions {
@@ -68,12 +70,24 @@ export async function release(ctx: Context, portal: string, options: ReleaseOpti
 
   ctx.stdout(`Released ${result.version} (#${result.versionId}) of ${app.name}.`);
 
-  if (result.awaitingReview.length > 0) {
+  const status = result.status ?? app.status;
+  const waiting = result.awaitingReview.filter((item) => item !== REDIRECT_REVIEW_KEY);
+
+  // A pending or rejected app is live nowhere until FlyCommerce approves it.
+  if (result.live === false || status === 'pending' || status === 'rejected') {
+    ctx.stdout(`${app.name} is waiting for FlyCommerce's review, so this version goes live once it's approved.`);
+  } else if (waiting.length > 0) {
     ctx.stdout(
-      `Waiting for FlyCommerce's review; stores keep the approved ones until then:\n${result.awaitingReview.map((item) => `  - ${item}`).join('\n')}`
+      `Waiting for FlyCommerce's review; stores keep the approved ones until then:\n${waiting.map((item) => `  - ${item}`).join('\n')}`
     );
-  } else {
+  } else if (!result.awaitingReview.includes(REDIRECT_REVIEW_KEY)) {
     ctx.stdout('Everything in it is live.');
+  }
+
+  if (result.awaitingReview.includes(REDIRECT_REVIEW_KEY)) {
+    ctx.stdout(
+      'Your install redirect change waits for review; merchants still return to the approved URL until then — keep that route working.'
+    );
   }
 }
 

@@ -30,6 +30,7 @@ export class FakePortal {
   /** Sent back instead of a code: access_denied when the developer cancels, invalid_request for a bad link. */
   authorizeError?: string;
   releaseAnswer?: { status: number; body: unknown };
+  me = { name: 'Dev Person', email: 'dev@example.com' };
   /** What the dev push says about installs, as the hub decides from the permissions it adds. */
   devPushAnswer: { reinstallRequired: boolean; message?: string; redirectUrl?: string | null } = { reinstallRequired: false };
   /** Answers every API call with a redirect here, as a misconfigured host or a sign-in page would. */
@@ -110,7 +111,7 @@ export class FakePortal {
     const path = url.pathname.slice('/api/cli/v1/'.length);
     const parts = path.split('/').map(decodeURIComponent);
 
-    if (req.method === 'GET' && path === 'me') return send(200, { id: 7, name: 'Dev Person', email: 'dev@example.com' });
+    if (req.method === 'GET' && path === 'me') return send(200, { id: 7, ...this.me });
     if (req.method === 'GET' && path === 'apps') {
       return send(
         200,
