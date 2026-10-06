@@ -60,6 +60,12 @@ export function parseFrameViewport(value: unknown): FrameViewport | null {
   return valid(top) && valid(height) ? { top, height } : null;
 }
 
+// Where @flycommerce/ui, built on Radix, mounts its popovers, selects and menus. Inside the dashboard it caps them at a
+// fixed height rather than the space left in the frame, so they reach past the page and the frame grows to fit.
+const POPUPS = '[data-radix-popper-content-wrapper]';
+// Room below a popup for its shadow.
+const POPUP_SHADOW = 8;
+
 export class AppBridge {
   public readonly appId: string;
   /** The dashboard's context once it answers APP_READY; null outside the dashboard or when it never answers. */
@@ -280,23 +286,40 @@ export class AppBridge {
 
     const report = () => {
       frame = 0;
-      const height = Math.ceil(root.getBoundingClientRect().height);
+      let height = root.getBoundingClientRect().height;
+
+      document.querySelectorAll(POPUPS).forEach((popup) => {
+        height = Math.max(height, popup.getBoundingClientRect().bottom + window.scrollY + POPUP_SHADOW);
+      });
+      height = Math.ceil(height);
 
       if (height !== reported) {
         reported = height;
         this.notify('RESIZE', { height });
       }
     };
-
-    const observer = new ResizeObserver(() => {
+    const schedule = () => {
       frame ||= requestAnimationFrame(report);
-    });
+    };
 
-    observer.observe(root);
+    const sizes = new ResizeObserver(schedule);
+    sizes.observe(root);
+
+    // Popups are fixed to the viewport, so opening, moving or closing one changes nothing the root's size shows.
+    const popups = new MutationObserver(() => {
+      document.querySelectorAll(POPUPS).forEach((popup) => {
+        sizes.observe(popup);
+        popups.observe(popup, { attributes: true, attributeFilter: ['style'] });
+      });
+      schedule();
+    });
+    popups.observe(document.body, { childList: true });
+
     report();
 
     return () => {
-      observer.disconnect();
+      sizes.disconnect();
+      popups.disconnect();
       cancelAnimationFrame(frame);
     };
   }
