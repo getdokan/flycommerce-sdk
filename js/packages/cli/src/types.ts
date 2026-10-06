@@ -28,6 +28,11 @@ export interface DevConfigResult {
   pages: { label: string; slug: string; url: string; children?: DevConfigResult['pages'] }[];
   scripts: { handle: string; src: string; load: string }[];
   installUrl: string;
+  /** The redirect URL the hub now holds for the app, or null when the config sets none. */
+  redirectUrl?: string | null;
+  /** The push added permissions the existing installs don't have. */
+  reinstallRequired?: boolean;
+  message?: string;
 }
 
 export interface ReleaseResult {

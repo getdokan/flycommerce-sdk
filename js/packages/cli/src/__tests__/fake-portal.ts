@@ -30,6 +30,8 @@ export class FakePortal {
   /** Sent back instead of a code: access_denied when the developer cancels, invalid_request for a bad link. */
   authorizeError?: string;
   releaseAnswer?: { status: number; body: unknown };
+  /** What the dev push says about installs, as the hub decides from the permissions it adds. */
+  devPushAnswer: { reinstallRequired: boolean; message?: string; redirectUrl?: string | null } = { reinstallRequired: false };
   /** Answers every API call with a redirect here, as a misconfigured host or a sign-in page would. */
   redirectTo?: string;
   private issuedCode?: string;
@@ -177,6 +179,15 @@ export class FakePortal {
           load: script.load ?? 'idle',
         })),
         installUrl: `${this.url}/apps/${app.appId}/install`,
+        // Kept as written: the install exchange compares it byte for byte.
+        redirectUrl:
+          this.devPushAnswer.redirectUrl !== undefined
+            ? this.devPushAnswer.redirectUrl
+            : config.install?.redirectUrl
+              ? onAppUrl(config.install.redirectUrl)
+              : null,
+        reinstallRequired: this.devPushAnswer.reinstallRequired,
+        ...(this.devPushAnswer.message ? { message: this.devPushAnswer.message } : {}),
       });
     }
 

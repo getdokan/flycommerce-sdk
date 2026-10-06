@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { after, before, beforeEach, describe, it } from 'node:test';
+import { tunnelUrlFromLine } from '../tunnel.js';
 import { FakePortal, runCli } from './fake-portal.js';
 
 const devConfig = {
@@ -18,7 +19,7 @@ const devConfig = {
 const recordEnv = (file: string, linger = false) => [
   process.execPath,
   '-e',
-  `require('fs').writeFileSync(${JSON.stringify(file)}, JSON.stringify({ APP_URL: process.env.APP_URL, REDIRECT_URI: process.env.REDIRECT_URI, PORT: process.env.PORT, APP_CONFIG_FILE: process.env.APP_CONFIG_FILE, pid: process.pid }));` +
+  `require('fs').writeFileSync(${JSON.stringify(file)}, JSON.stringify({ APP_URL: process.env.APP_URL, REDIRECT_URI: process.env.REDIRECT_URI, PORT: process.env.PORT, APP_CONFIG_FILE: process.env.APP_CONFIG_FILE, FLYCOMMERCE_TOKEN: process.env.FLYCOMMERCE_TOKEN ?? null, pid: process.pid }));` +
     (linger ? 'setInterval(() => {}, 1000);' : ''),
 ];
 
@@ -57,6 +58,7 @@ describe('flycommerce app dev', () => {
     env = { PATH: process.env.PATH, XDG_CONFIG_HOME: dir, FLYCOMMERCE_TOKEN: portal.token };
     portal.apps.clear();
     portal.requests.length = 0;
+    portal.devPushAnswer = { reinstallRequired: false };
     portal.addApp({ appId: 'order-export', name: 'Order Export', published: true, status: 'published' });
     portal.addApp({ appId: 'order-export-dev', name: 'Order Export (dev)' });
     fs.writeFileSync(path.join(dir, 'app-config.dev.json'), JSON.stringify({ ...devConfig, versionId: 2, version: '1.0.0' }));
@@ -80,6 +82,7 @@ describe('flycommerce app dev', () => {
       REDIRECT_URI: 'https://my-tunnel.example.dev/auth/callback',
       PORT: '4100',
       APP_CONFIG_FILE: path.join(dir, 'app-config.dev.json'),
+      FLYCOMMERCE_TOKEN: null,
       pid: JSON.parse(fs.readFileSync(out, 'utf8')).pid,
     });
     assert.match(result.stdout, new RegExp(`Install it on your store:\\s+${portal.url}/apps/order-export-dev/install`));
@@ -87,7 +90,7 @@ describe('flycommerce app dev', () => {
     assert.match(result.stdout, /welcome\s+https:\/\/my-tunnel\.example\.dev\/storefront\/welcome\.js/);
   });
 
-  it('takes a dev config without appUrl, since the tunnel replaces it', async () => {
+  it('refuses a dev config without appUrl, which the server loading the same file would refuse too', async () => {
     const { appUrl, ...withoutAppUrl } = devConfig;
     fs.writeFileSync(path.join(dir, 'app-config.dev.json'), JSON.stringify(withoutAppUrl));
 
@@ -96,8 +99,81 @@ describe('flycommerce app dev', () => {
       { env, cwd: dir }
     );
 
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /app-config\.dev\.json is not valid:\n  - appUrl is required/);
+    assert.ok(!portal.apiCalls().some((call) => call.method === 'PUT'));
+  });
+
+  it("runs a server that loads the same config with @flycommerce/app-server's loadAppConfig", async () => {
+    const out = path.join(dir, 'loaded.json');
+    const appServer = import.meta.resolve('@flycommerce/app-server');
+    const server = `const { loadAppConfig } = await import(${JSON.stringify(appServer)});
+      const config = loadAppConfig(process.env.APP_CONFIG_FILE, { appId: 'order-export-dev' });
+      (await import('node:fs')).writeFileSync(${JSON.stringify(out)}, JSON.stringify({ appId: config.appId, pages: config.dashboard.pages.length }));`;
+
+    const result = await runCli(
+      [
+        'app',
+        'dev',
+        '--config',
+        'dev',
+        '--tunnel-url',
+        'https://t.example.dev',
+        '--portal',
+        portal.url,
+        '--',
+        process.execPath,
+        '--input-type=module',
+        '-e',
+        server,
+      ],
+      { env, cwd: dir }
+    );
+
     assert.equal(result.code, 0, result.stderr);
-    assert.equal(portal.apiCalls().find((call) => call.method === 'PUT')!.body.config.appUrl, 'https://t.example.dev');
+    assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), { appId: 'order-export-dev', pages: 1 });
+  });
+
+  it('sets REDIRECT_URI to the redirect URL the hub now holds, exactly, and says when the app must be reinstalled', async () => {
+    const out = path.join(dir, 'env.json');
+    portal.devPushAnswer = { reinstallRequired: true, redirectUrl: 'https://Dev.Example.dev/auth/callback' };
+
+    const result = await runCli(
+      ['app', 'dev', '--config', 'dev', '--tunnel-url', 'https://Dev.Example.dev', '--portal', portal.url, '--', ...recordEnv(out)],
+      { env, cwd: dir }
+    );
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).REDIRECT_URI, 'https://Dev.Example.dev/auth/callback');
+    assert.match(result.stdout, /Reinstall the app on your store to grant the permissions this config adds/);
+
+    portal.devPushAnswer = {
+      reinstallRequired: true,
+      redirectUrl: 'https://dev.example.dev/hub/kept',
+      message: 'Reinstall to grant: storefront.scripts\u001b[2J',
+    };
+    const again = await runCli(
+      ['app', 'dev', '--config', 'dev', '--tunnel-url', 'https://Dev.Example.dev', '--portal', portal.url, '--', ...recordEnv(out)],
+      { env, cwd: dir }
+    );
+
+    assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).REDIRECT_URI, 'https://dev.example.dev/hub/kept');
+    assert.match(again.stdout, /Reinstall to grant: storefront\.scripts\[2J/);
+    assert.ok(!again.stdout.includes('\u001b'), 'no terminal escapes from the network');
+  });
+
+  it("falls back to the config's redirect on the tunnel when the hub holds none", async () => {
+    const out = path.join(dir, 'env.json');
+    portal.devPushAnswer = { reinstallRequired: false, redirectUrl: null };
+
+    const result = await runCli(
+      ['app', 'dev', '--config', 'dev', '--tunnel-url', 'https://t.example.dev', '--portal', portal.url, '--', ...recordEnv(out)],
+      { env, cwd: dir }
+    );
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).REDIRECT_URI, 'https://t.example.dev/auth/callback');
+    assert.doesNotMatch(result.stdout, /Reinstall/);
   });
 
   for (const status of ['published', 'pending'] as const) {
@@ -141,16 +217,26 @@ describe('flycommerce app dev', () => {
     }
   });
 
-  it('starts cloudflared for a quick tunnel, uses its URL, and stops it afterwards', async () => {
-    const out = path.join(dir, 'env.json');
-    const pidFile = path.join(dir, 'cloudflared.pid');
+  const fakeCloudflared = (script: string) => {
     const fake = path.join(dir, 'cloudflared');
     fs.writeFileSync(
       fake,
-      `#!${process.execPath}\nrequire('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\n` +
-        `if (process.argv.slice(2).join(' ') !== 'tunnel --no-autoupdate --url http://localhost:4200') process.exit(2);\n` +
-        `console.error('INF |  https://quiet-fox-lamp.trycloudflare.com  |');\nsetInterval(() => {}, 1000);\n`,
+      `#!${process.execPath}\nrequire('fs').writeFileSync(${JSON.stringify(path.join(dir, 'cloudflared.json'))}, JSON.stringify({ pid: process.pid, token: process.env.FLYCOMMERCE_TOKEN ?? null }));\n` +
+        script,
       { mode: 0o755 }
+    );
+    return fake;
+  };
+  const cloudflaredRun = () => JSON.parse(fs.readFileSync(path.join(dir, 'cloudflared.json'), 'utf8'));
+
+  it('starts cloudflared for a quick tunnel, uses its URL, and stops it afterwards', async () => {
+    const out = path.join(dir, 'env.json');
+    const fake = fakeCloudflared(
+      `if (process.argv.slice(2).join(' ') !== 'tunnel --no-autoupdate --url http://localhost:4200') process.exit(2);\n` +
+        `console.error('2026-10-06T10:00:00Z INF Requesting new quick Tunnel on trycloudflare.com...');\n` +
+        `console.error('2026-10-06T10:00:01Z INF |  Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):  |');\n` +
+        `console.error('2026-10-06T10:00:01Z INF |  https://quiet-fox-lamp.trycloudflare.com                                                  |');\n` +
+        `setInterval(() => {}, 1000);\n`
     );
 
     const result = await runCli(['app', 'dev', '--config', 'dev', '--port', '4200', '--portal', portal.url, '--', ...recordEnv(out)], {
@@ -161,8 +247,55 @@ describe('flycommerce app dev', () => {
     assert.equal(result.code, 0, result.stderr);
     assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).APP_URL, 'https://quiet-fox-lamp.trycloudflare.com');
     assert.equal(portal.apiCalls().find((call) => call.method === 'PUT')!.body.config.appUrl, 'https://quiet-fox-lamp.trycloudflare.com');
-    const tunnelPid = Number(fs.readFileSync(pidFile, 'utf8'));
-    await waitFor(() => (alive(tunnelPid) ? undefined : true));
+    const { pid, token } = cloudflaredRun();
+    assert.equal(token, null, 'cloudflared never gets the portal token');
+    await waitFor(() => (alive(pid) ? undefined : true));
+  });
+
+  it('fails, and pushes nothing, when cloudflared cannot create a tunnel', async () => {
+    const fake = fakeCloudflared(
+      `console.error('2026-10-06T10:00:00Z INF Requesting new quick Tunnel on trycloudflare.com...');\n` +
+        `console.error('2026-10-06T10:00:01Z ERR failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": dial tcp: lookup api.trycloudflare.com: no such host');\n` +
+        `process.exit(1);\n`
+    );
+
+    const result = await runCli(['app', 'dev', '--config', 'dev', '--portal', portal.url, '--', process.execPath, '-e', ''], {
+      env: { ...env, FLYCOMMERCE_CLOUDFLARED: fake },
+      cwd: dir,
+    });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /cloudflared stopped before it gave a tunnel URL:[^]*failed to request quick Tunnel/);
+    assert.ok(!portal.apiCalls().some((call) => call.method === 'PUT'));
+  });
+
+  it('stops the server with an error when the tunnel dies', { timeout: 10_000 }, async () => {
+    const out = path.join(dir, 'env.json');
+    const fake = fakeCloudflared(
+      `console.error('INF |  https://short-lived.trycloudflare.com  |');\nsetTimeout(() => process.exit(1), 300);\nsetInterval(() => {}, 1000);\n`
+    );
+
+    const running = runCli(['app', 'dev', '--config', 'dev', '--portal', portal.url, '--', ...recordEnv(out, true)], {
+      env: { ...env, FLYCOMMERCE_CLOUDFLARED: fake },
+      cwd: dir,
+    });
+    const { pid } = await waitFor(() => (fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, 'utf8')) : undefined));
+    // Without the fix the server would run on forever; this ends it so the test fails instead of hanging.
+    const watchdog = setTimeout(() => alive(pid) && process.kill(pid, 'SIGKILL'), 4000);
+
+    try {
+      const stoppedByCli = await waitFor(() => (alive(pid) ? undefined : true), 3000).then(
+        () => true,
+        () => false
+      );
+      const result = await running;
+      assert.ok(stoppedByCli, 'the server was stopped when the tunnel died');
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /The tunnel stopped/);
+    } finally {
+      clearTimeout(watchdog);
+      if (alive(pid)) process.kill(pid, 'SIGKILL');
+    }
   });
 
   it("says how to go on when cloudflared isn't installed", async () => {
@@ -190,5 +323,19 @@ describe('flycommerce app dev', () => {
     assert.equal(result.code, 1);
     assert.match(result.stderr, /must be on t\.example\.dev[^]*Write each script src as a path/);
     assert.ok(!portal.apiCalls().some((call) => call.method === 'PUT'));
+  });
+});
+
+describe("reading cloudflared's output", () => {
+  it('takes the tunnel URL only from a line of its own, never the API cloudflared calls', () => {
+    assert.equal(
+      tunnelUrlFromLine('2026-10-06T10:00:01Z INF |  https://quiet-fox-lamp.trycloudflare.com          |'),
+      'https://quiet-fox-lamp.trycloudflare.com'
+    );
+    assert.equal(tunnelUrlFromLine('https://quiet-fox-lamp.trycloudflare.com'), 'https://quiet-fox-lamp.trycloudflare.com');
+    assert.equal(tunnelUrlFromLine('ERR failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": EOF'), undefined);
+    assert.equal(tunnelUrlFromLine('INF |  https://api.trycloudflare.com  |'), undefined);
+    assert.equal(tunnelUrlFromLine('INF Requesting new quick Tunnel on trycloudflare.com...'), undefined);
+    assert.equal(tunnelUrlFromLine('INF see https://evil.trycloudflare.com.example.net |'), undefined);
   });
 });

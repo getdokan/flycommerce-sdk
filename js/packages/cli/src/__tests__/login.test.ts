@@ -53,16 +53,22 @@ describe('flycommerce login', () => {
     assert.ok(!(result.stdout + result.stderr).includes('flyc_production_token'), 'the token is never printed');
   });
 
-  it("refuses an answer whose state isn't the one it sent, and never exchanges the code", async () => {
+  it("ignores an answer whose state isn't the one it sent, never exchanges its code, and keeps waiting", async () => {
     const dir = home();
     portal.forgedState = 'forged-state';
     portal.requests.length = 0;
 
     try {
-      const result = await runCli(['login', '--portal', portal.url], { env: { XDG_CONFIG_HOME: dir }, cwd: dir, openUrl: browser });
+      const result = await runCli(['login', '--portal', portal.url], {
+        env: { XDG_CONFIG_HOME: dir },
+        cwd: dir,
+        openUrl: browser,
+        loginTimeoutMs: 1000,
+      });
 
       assert.equal(result.code, 1);
-      assert.match(result.stderr, /state mismatch/);
+      assert.match(result.stderr, /Ignored an answer that doesn't match this sign-in \(state mismatch\)\. Still waiting/);
+      assert.match(result.stderr, /Sign-in timed out/);
       assert.ok(!portal.requests.some((request) => request.path === '/api/cli/v1/token'));
       assert.ok(!fs.existsSync(credentialsPath({ XDG_CONFIG_HOME: dir })));
     } finally {
@@ -79,14 +85,52 @@ describe('flycommerce login', () => {
       assert.equal(cancelled.code, 1);
       assert.match(cancelled.stderr, /cancelled in the browser/);
 
-      portal.authorizeError = 'invalid_request';
+      portal.authorizeError = 'invalid_request\u001b[2J\u001b]0;pwned\u0007';
       const refused = await runCli(['login', '--portal', portal.url], { env: { XDG_CONFIG_HOME: dir }, cwd: dir, openUrl: browser });
       assert.equal(refused.code, 1);
-      assert.match(refused.stderr, /refused the sign-in request \(invalid_request\)/);
+      assert.match(refused.stderr, /refused the sign-in request \(invalid_requestpwned\)/);
+      assert.ok(!/[\u0000-\u0008\u000b-\u001f]/.test(refused.stderr), 'no control characters reach the terminal');
       assert.ok(!fs.existsSync(credentialsPath({ XDG_CONFIG_HOME: dir })));
     } finally {
       portal.authorizeError = undefined;
     }
+  });
+
+  it("isn't ended by a stray local request without its state", async () => {
+    const dir = home();
+    // Something else on this computer calls the loopback first, then the real answer comes.
+    const strayFirst = (url: string) => {
+      const loopback = new URL(url).searchParams.get('redirect_uri')!;
+      void fetch(`${loopback}?error=access_denied`)
+        .then((stray) => {
+          assert.equal(stray.status, 400);
+          return fetch(url);
+        })
+        .catch(() => {});
+    };
+
+    const result = await runCli(['login', '--portal', portal.url], { env: { XDG_CONFIG_HOME: dir }, cwd: dir, openUrl: strayFirst });
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stderr, /Ignored an answer/);
+    assert.ok(fs.existsSync(credentialsPath({ XDG_CONFIG_HOME: dir })));
+  });
+
+  it('keeps the credentials directory private, and keeps an unreadable credentials file instead of overwriting it', async () => {
+    const dir = home();
+    const env = { XDG_CONFIG_HOME: dir };
+    const file = credentialsPath(env);
+    fs.mkdirSync(path.dirname(file), { mode: 0o755 });
+    fs.chmodSync(path.dirname(file), 0o755);
+    fs.writeFileSync(file, '{ not json');
+
+    const result = await runCli(['login', '--portal', portal.url], { env, cwd: dir, openUrl: browser });
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
+    assert.equal(fs.readFileSync(`${file}.bak`, 'utf8'), '{ not json');
+    assert.match(result.stderr, /couldn't be read, so it was kept as .*credentials\.json\.bak/);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).portals[portal.url].token, 'flyc_production_token');
   });
 
   it('gives up when nobody answers in time', async () => {

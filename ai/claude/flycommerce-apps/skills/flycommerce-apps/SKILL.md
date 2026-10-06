@@ -88,7 +88,8 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 ### app-config.json
 - Only `appUrl` differs between environments. Write every page `path`, script `src` and `install.redirectUrl` as a path on it (`"/auth/callback"`), never with a host, so the same file works for production, a development app and a tunnel. Spec: https://github.com/getdokan/flycommerce-sdk/blob/main/spec/app-config.md.
 - One file per app: `app-config.json` for the production app, `app-config.<name>.json` (like `app-config.dev.json`) for another, differing in `appId`.
-- `install.redirectUrl` is optional; when set, releasing the file sets the app's redirect URL. Set it, so installs follow `appUrl`.
+- `install.redirectUrl` is optional; when set, releasing the file sets the app's redirect URL. Set it, so installs follow `appUrl`. It's compared byte for byte: keep its case as the server builds it, an ASCII host, and at most 255 characters once joined to `appUrl`.
+- Every file keeps an `appUrl`, even a development one: the server loads the same file.
 - `storefront` is optional and takes only `scripts` (see above).
 - Pages: at most 20, at most one level of `children`; `label` up to 40 characters; `slug` of letters, numbers, `-` and `_`; `path` starting with `/` with no spaces, `?` or `#`.
 - `appUrl` is `https` (plain `http` only for `localhost` and `.test`). `versionId` and `version` are optional: leave them out and let `flycommerce app release` fill them in. If they're there, they must match the changelog entry.
@@ -97,7 +98,7 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 ### Develop and release with the CLI
 - `@flycommerce/cli` (`npx flycommerce`) does the portal bookkeeping. Prefer it to describing portal clicks. Guide: https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/cli.
 - One app per environment: the production app merchants install, and an unpublished development app installed only on the developer's own stores. `flycommerce app link --config dev` writes the development app's ID into `app-config.dev.json`.
-- `flycommerce app dev --config dev -- <server command>` opens a tunnel (Cloudflare's `cloudflared`, or `--tunnel-url`), pushes the config to the development app with `appUrl` set to the tunnel, and runs the server with `APP_URL`, `REDIRECT_URI`, `PORT` and `APP_CONFIG_FILE` set. The server reads those rather than hard-coding a host or port, and loads the config from `APP_CONFIG_FILE` when it's set. The development app's ID and secret go in the developer's `.env`, never in the repo.
+- `flycommerce app dev --config dev -- <server command>` opens a tunnel (Cloudflare's `cloudflared`, or `--tunnel-url`), pushes the config to the development app with `appUrl` set to the tunnel, and runs the server with `APP_URL`, `REDIRECT_URI`, `PORT` and `APP_CONFIG_FILE` set. The server reads those rather than hard-coding a host or port, and loads the config from `APP_CONFIG_FILE` when it's set. When `app dev` says to reinstall, the push added permissions (like `storefront.scripts`) that the store's install doesn't have yet. The development app's ID and secret go in the developer's `.env`, never in the repo.
 - `app dev` refuses an app that's published, waiting for review or rejected. Never work around that by pointing the production app at a tunnel: merchants' stores would load it.
 - `flycommerce app release --version 1.2.0 --message "…"` checks the config, creates the version and releases it; a listed app's new pages, permissions and scripts wait for review. In CI it reads a per-app deploy token from `FLYCOMMERCE_TOKEN`.
 - `flycommerce login` signs in through the browser. Never ask the developer for their token, and never print, log or commit one.

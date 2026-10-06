@@ -147,8 +147,8 @@ export class PortalApi {
   private error(status: number, data: unknown): ApiError {
     const body = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
     const code = typeof body.error === 'string' ? body.error : undefined;
-    const problems = Array.isArray(body.problems) ? body.problems.map(problemText) : [];
-    let message = typeof body.message === 'string' && body.message !== '' ? body.message : `The portal answered ${status}.`;
+    const problems = Array.isArray(body.problems) ? body.problems.map((problem) => printable(problemText(problem))) : [];
+    let message = typeof body.message === 'string' && body.message !== '' ? printable(body.message) : `The portal answered ${status}.`;
 
     if (status === 401) {
       message =
@@ -159,6 +159,11 @@ export class PortalApi {
 
     return new ApiError(status, code, message, problems, body);
   }
+}
+
+/** Text from the network, without control characters that a terminal would act on. */
+export function printable(text: string): string {
+  return text.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, '');
 }
 
 function problemText(problem: unknown): string {

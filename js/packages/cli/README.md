@@ -47,7 +47,7 @@ flycommerce login
 
 The browser opens the portal's "Allow FlyCommerce CLI" page; the link is printed too, in case it doesn't open. The sign-in comes back to a server on `127.0.0.1` that the CLI runs for those few minutes, and is exchanged with a PKCE verifier only that process knows.
 
-The token is kept in `~/.config/flycommerce/credentials.json` (`$XDG_CONFIG_HOME/flycommerce/` when that is set), readable only by you, one per portal. `logout` forgets it on this computer; revoke it in the portal's **Credentials** tab to end it everywhere.
+The token is kept in `~/.config/flycommerce/credentials.json` (`$XDG_CONFIG_HOME/flycommerce/` when that is set), readable only by you, one per portal. If that file can't be read, `login` keeps it as `credentials.json.bak` and starts a new one. `logout` forgets it on this computer; revoke it in the portal's **Credentials** tab to end it everywhere.
 
 ### Develop on your store
 
@@ -62,18 +62,20 @@ flycommerce app dev --config dev -- npm run dev:server
 2. pushes the config to the development app, with `appUrl` set to the tunnel;
 3. runs your server, `npm start` unless you give a command after `--`, with these set:
 
-   | Variable          | Value                                                           |
-   | ----------------- | --------------------------------------------------------------- |
-   | `APP_URL`         | The tunnel's URL                                                |
-   | `REDIRECT_URI`    | `install.redirectUrl` on the tunnel, or `APP_URL/auth/callback` |
-   | `PORT`            | `--port`                                                        |
-   | `APP_CONFIG_FILE` | The config file's full path, so the server reads the same file  |
+   | Variable          | Value                                                                                                                             |
+   | ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+   | `APP_URL`         | The tunnel's URL                                                                                                                  |
+   | `REDIRECT_URI`    | The redirect URL FlyCommerce now holds for the app, exactly; else `install.redirectUrl` on the tunnel, or `APP_URL/auth/callback` |
+   | `PORT`            | `--port`                                                                                                                          |
+   | `APP_CONFIG_FILE` | The config file's full path, so the server reads the same file                                                                    |
 
 4. prints the install link, the pages and the storefront scripts.
 
-`appServerConfigFromEnv()` from `@flycommerce/app-server` reads `APP_URL` and `REDIRECT_URI`, so `.env` only needs the development app's ID and secret. Ctrl+C stops your server and the tunnel.
+`appServerConfigFromEnv()` from `@flycommerce/app-server` reads `APP_URL` and `REDIRECT_URI`, so `.env` only needs the development app's ID and secret. Load the config with `loadAppConfig(process.env.APP_CONFIG_FILE ?? 'app-config.json')`; that's why the file keeps an `appUrl` even though the push replaces it. Ctrl+C stops your server and the tunnel; if the tunnel stops on its own, `app dev` stops your server and exits with an error.
 
-The tunnel URL changes on every run, so `app dev` pushes on every start. The development app keeps its App ID, secret and your stores' installs across runs; reinstall only when its permissions change. Add `"install": { "redirectUrl": "/auth/callback" }` to the config so installs come back through the current tunnel.
+Your server and `cloudflared` run without `FLYCOMMERCE_TOKEN` or any other `FLYCOMMERCE_*` variable, so the portal token never reaches them. On Windows the command runs through `cmd.exe` with each argument quoted, since `npm` and similar commands are `.cmd` files; elsewhere it runs without a shell.
+
+The tunnel URL changes on every run, so `app dev` pushes on every start. The development app keeps its App ID, secret and your stores' installs across runs; reinstall only when its permissions change, which `app dev` tells you, for example after adding the first storefront script. Add `"install": { "redirectUrl": "/auth/callback" }` to the config so installs come back through the current tunnel.
 
 `app dev` refuses an app that's published, waiting for review or rejected: it changes only by releasing a version.
 
@@ -109,7 +111,9 @@ Set `FLYCOMMERCE_TOKEN` to a deploy token from the portal's **Credentials** tab.
 ## Security
 
 - The sign-in uses PKCE (S256) and a random `state`, checked in constant time; an answer with another `state` is refused and nothing is saved.
-- The token goes only to the portal, over `https` (plain `http` only to `localhost`). It's never printed or put in a URL.
+- The token goes only to the portal, over `https` (plain `http` only to `localhost`), and never follows a redirect. It's never printed, put in a URL, or passed to the processes `app dev` starts.
+- Only an answer carrying the sign-in's `state` can end it; anything else that calls the loopback is answered `400` and ignored.
+- Text from the portal is printed without control characters.
 - Every request has a timeout.
 
 Report vulnerabilities through [SECURITY.md](https://github.com/getdokan/flycommerce-sdk/blob/main/SECURITY.md).

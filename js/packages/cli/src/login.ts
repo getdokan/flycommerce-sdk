@@ -14,7 +14,9 @@ export async function login(ctx: Context, portal: string): Promise<void> {
   const verifier = base64url(randomBytes(32));
   const challenge = base64url(createHash('sha256').update(verifier).digest());
   const state = base64url(randomBytes(32));
-  const loopback = await startLoopback(state, ctx.loginTimeoutMs ?? LOGIN_TIMEOUT_MS, ctx.signal);
+  const loopback = await startLoopback(state, ctx.loginTimeoutMs ?? LOGIN_TIMEOUT_MS, ctx.signal, () =>
+    ctx.stderr("Ignored an answer that doesn't match this sign-in (state mismatch). Still waiting…")
+  );
   const redirectUri = `${loopback.url}/callback`;
 
   const authorize = new URL(`${portal}/cli/authorize`);
@@ -45,7 +47,11 @@ export async function login(ctx: Context, portal: string): Promise<void> {
     throw new CliError(`${portal} did not return a token.`);
   }
 
-  saveCredential(ctx.env, portal, { token, ...(typeof expiresAt === 'string' ? { expiresAt } : {}) });
+  const { backup } = saveCredential(ctx.env, portal, { token, ...(typeof expiresAt === 'string' ? { expiresAt } : {}) });
+
+  if (backup) {
+    ctx.stderr(`The credentials file couldn't be read, so it was kept as ${backup} and a new one started.`);
+  }
 
   try {
     const me = await PortalApi.withToken(portal, token, ctx).get<{ name?: string; email?: string }>('me');
@@ -63,7 +69,12 @@ const page = (title: string, text: string) =>
   `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head>` +
   `<body style="font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 16px"><h1 style="font-size:20px">${title}</h1><p>${text}</p></body></html>`;
 
-function startLoopback(state: string, timeoutMs: number, signal?: AbortSignal): Promise<{ url: string; code: Promise<string> }> {
+function startLoopback(
+  state: string,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+  onIgnored: () => void
+): Promise<{ url: string; code: Promise<string> }> {
   let settle: { resolve(code: string): void; reject(error: Error): void };
   const code = new Promise<string>((resolve, reject) => (settle = { resolve, reject }));
   let done = false;
@@ -87,6 +98,12 @@ function startLoopback(state: string, timeoutMs: number, signal?: AbortSignal): 
     const returned = url.searchParams.get('state') ?? '';
     const received = url.searchParams.get('code');
 
+    // Anything on this computer can call the loopback; only an answer carrying our state can end the sign-in.
+    if (!sameState(returned, state)) {
+      reply(400, 'Sign-in refused', "This answer doesn't belong to the sign-in this terminal started.");
+      onIgnored();
+      return;
+    }
     if (error === 'access_denied') {
       reply(200, 'Sign-in cancelled', 'Nothing was saved. You can close this tab.');
       return finish(new CliError('Sign-in was cancelled in the browser. Nothing was saved.'));
@@ -94,13 +111,9 @@ function startLoopback(state: string, timeoutMs: number, signal?: AbortSignal): 
     if (error) {
       reply(200, 'Sign-in failed', 'The portal refused this sign-in request. Nothing was saved.');
       return finish(
-        new CliError(`The portal refused the sign-in request (${error.slice(0, 40)}). Nothing was saved. Run flycommerce login again.`)
-      );
-    }
-    if (!sameState(returned, state)) {
-      reply(400, 'Sign-in refused', "This answer doesn't belong to the sign-in this terminal started. Nothing was saved.");
-      return finish(
-        new CliError("The browser's answer didn't match this sign-in (state mismatch). Nothing was saved. Run flycommerce login again.")
+        new CliError(
+          `The portal refused the sign-in request (${error.replace(/[^a-z_]/g, '').slice(0, 40) || 'no reason given'}). Nothing was saved. Run flycommerce login again.`
+        )
       );
     }
     if (!received) {
@@ -112,7 +125,7 @@ function startLoopback(state: string, timeoutMs: number, signal?: AbortSignal): 
     finish(received);
   });
 
-  const timer = setTimeout(() => finish(new CliError('Sign-in timed out after 5 minutes. Run flycommerce login again.')), timeoutMs);
+  const timer = setTimeout(() => finish(new CliError('Sign-in timed out. Run flycommerce login again.')), timeoutMs);
   const onAbort = () => finish(new CliError('Sign-in cancelled.'));
   signal?.addEventListener('abort', onAbort, { once: true });
 

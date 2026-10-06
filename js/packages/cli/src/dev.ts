@@ -1,8 +1,9 @@
-import { ChildProcess, spawn } from 'node:child_process';
+import { ChildProcess } from 'node:child_process';
 import { AppConfig, checkAppConfig, resolveAppConfig } from '@flycommerce/app-server';
+import { childEnv, spawnCommand } from './child.js';
 import { readConfigFile } from './config-file.js';
 import { CliError, Context } from './context.js';
-import { ApiError, PortalApi } from './portal.js';
+import { ApiError, PortalApi, printable } from './portal.js';
 import { Tunnel, startCloudflared } from './tunnel.js';
 import { DevConfigResult } from './types.js';
 
@@ -27,8 +28,8 @@ export async function dev(ctx: Context, portal: string, options: DevOptions): Pr
   const file = readConfigFile(ctx, options.config);
   // Versions are for releases; a dev push has none.
   const { versionId: _versionId, version: _version, ...config } = file.config;
-  // appUrl is replaced by the tunnel, so a dev file may leave it out.
-  const shapeProblems = checkAppConfig({ appUrl: 'https://tunnel.invalid', ...config });
+  // appUrl stays required: the server loads this same file, and the tunnel only replaces it in the push.
+  const shapeProblems = checkAppConfig(config);
 
   if (shapeProblems.length > 0) {
     throw new CliError(`${file.name} is not valid:`, shapeProblems);
@@ -47,6 +48,11 @@ export async function dev(ctx: Context, portal: string, options: DevOptions): Pr
   }
 
   const stopTunnel = () => tunnel?.process.kill();
+  let tunnelDown = false;
+  void tunnel?.exited.then(() => (tunnelDown = true));
+  const checkTunnel = () => {
+    if (tunnelDown) throw new CliError('The tunnel stopped, so the app is no longer reachable. Run flycommerce app dev again.');
+  };
 
   try {
     const pushed = { ...config, appUrl };
@@ -71,11 +77,23 @@ export async function dev(ctx: Context, portal: string, options: DevOptions): Pr
       throw error;
     }
 
+    checkTunnel();
+
+    // The hub's copy is what the install exchange compares, byte for byte.
     const resolved = resolveAppConfig(pushed as unknown as AppConfig);
-    const redirectUri = resolved.install?.redirectUrl ?? `${appUrl}/auth/callback`;
+    const redirectUri =
+      typeof result.redirectUrl === 'string' && result.redirectUrl !== ''
+        ? result.redirectUrl
+        : (resolved.install?.redirectUrl ?? `${appUrl}/auth/callback`);
     const command = options.command.length > 0 ? options.command : DEFAULT_COMMAND;
 
     printSummary(ctx, file.name, result, appUrl, command, port);
+
+    if (result.reinstallRequired) {
+      ctx.stdout(
+        `\n${result.message ? printable(result.message) : 'Reinstall the app on your store to grant the permissions this config adds, like storefront.scripts.'}`
+      );
+    }
 
     if (resolved.install?.redirectUrl === undefined) {
       ctx.stdout(
@@ -86,13 +104,7 @@ export async function dev(ctx: Context, portal: string, options: DevOptions): Pr
     return await runApp(
       ctx,
       command,
-      {
-        ...ctx.env,
-        APP_URL: appUrl,
-        REDIRECT_URI: redirectUri,
-        PORT: String(port),
-        APP_CONFIG_FILE: file.path,
-      },
+      childEnv(ctx.env, { APP_URL: appUrl, REDIRECT_URI: redirectUri, PORT: String(port), APP_CONFIG_FILE: file.path }),
       tunnel
     );
   } finally {
@@ -125,15 +137,10 @@ function runApp(ctx: Context, command: string[], env: NodeJS.ProcessEnv, tunnel:
   return new Promise((resolve, reject) => {
     let child: ChildProcess;
     let stopping = false;
+    let tunnelDied = false;
 
     try {
-      child = spawn(command[0], command.slice(1), {
-        cwd: ctx.cwd,
-        env,
-        stdio: 'inherit',
-        // npm and other .cmd shims only start through a shell on Windows.
-        shell: process.platform === 'win32',
-      });
+      child = spawnCommand(command, { cwd: ctx.cwd, env, stdio: 'inherit' });
     } catch (error) {
       reject(new CliError(`Couldn't run ${command[0]}: ${(error as Error).message}`));
       return;
@@ -151,12 +158,12 @@ function runApp(ctx: Context, command: string[], env: NodeJS.ProcessEnv, tunnel:
     ctx.signal?.addEventListener('abort', onAbort, { once: true });
     if (ctx.signal?.aborted) stop();
 
-    const onTunnelExit = () => {
+    void tunnel?.exited.then(() => {
       if (stopping) return;
-      ctx.stderr('The tunnel stopped, so the app is no longer reachable. Stopping.');
+      tunnelDied = true;
+      ctx.stderr('Error: The tunnel stopped, so the app is no longer reachable. Stopping your server; run flycommerce app dev again.');
       stop();
-    };
-    tunnel?.process.once('exit', onTunnelExit);
+    });
 
     child.once('error', (error: NodeJS.ErrnoException) => {
       ctx.signal?.removeEventListener('abort', onAbort);
@@ -171,7 +178,7 @@ function runApp(ctx: Context, command: string[], env: NodeJS.ProcessEnv, tunnel:
 
     child.once('exit', (code, signal) => {
       ctx.signal?.removeEventListener('abort', onAbort);
-      tunnel?.process.off('exit', onTunnelExit);
+      if (tunnelDied) return resolve(1);
       if (ctx.signal?.aborted) return resolve(0);
       if (stopping) return resolve(1);
       resolve(code ?? (signal ? 1 : 0));
