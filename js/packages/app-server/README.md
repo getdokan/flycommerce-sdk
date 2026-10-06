@@ -98,6 +98,22 @@ Nobody tells an app it was removed: the store just refuses its credential. `isIn
 
 `FileCredentialStore` suits a single instance: it writes atomically with `0600` permissions. Pass `{ sealer: new Sealer(key) }` to keep every credential encrypted on disk. Running more than one instance? Implement `CredentialStore` (`get`, `put`, `delete`) on your database.
 
+### Storefront scripts
+
+An app can add up to three scripts to the merchant's storefront, for chat, reviews and similar features. Declare them in `app-config.json`:
+
+```json
+"storefront": { "scripts": [{ "handle": "chat", "src": "https://my-app.example/chat.js", "load": "idle" }] }
+```
+
+- `handle`: lower-case letters, numbers and `-`, up to 40 characters, unique within the app.
+- `src`: `https`, on the same host as `appUrl`, up to 2000 characters.
+- `load`: `interactive` (once the page can be used) or `idle` (after the page has loaded, the default).
+
+`loadAppConfig` checks all of it. Serve the files yourself, as `text/javascript`.
+
+A script runs on the store's pages with the page's full access. That's why FlyCommerce serves only the scripts you declare, from your own host, after reviewing the version. The merchant can switch them off, and FlyCommerce can suspend them. They never run on the builder or previews, the customer account, checkout, payment and order pages, sign-in and account pages, or the dashboard; navigating into those pages reloads the page, so no app script carries over. Each script loads `async` in no guaranteed order, so make each one self-contained. See [`spec/storefront-scripts.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/storefront-scripts.md).
+
 ## Security
 
 - Every outgoing request has a timeout.

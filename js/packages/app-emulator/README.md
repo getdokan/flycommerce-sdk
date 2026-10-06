@@ -1,6 +1,6 @@
 # @flycommerce/app-emulator
 
-A local FlyCommerce emulator for developing and testing your app, with no account or network needed: a hub that issues and verifies tokens, a store with an API and webhooks, a dashboard that frames your pages, and a kit for faking a third-party OAuth 2.0 provider.
+A local FlyCommerce emulator for developing and testing your app, with no account or network needed: a hub that issues and verifies tokens, a store with an API and webhooks, a dashboard that frames your pages, a store page that runs your storefront scripts, and a kit for faking a third-party OAuth 2.0 provider.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/getdokan/flycommerce-sdk/blob/main/LICENSE)
 
@@ -38,6 +38,10 @@ await platform.close();
 - **Orders:** `addOrder()` stamps real times, and the order list honours `include`, `paginate=full`, `sort` and `filters[createdAt]` / `filters[updatedAt]` (a bare date means "since").
 - **Webhooks:** `deliver(store, event, data)` sends the real body, `{event, timestamp, data}`, signed with each subscription's secret. `FakeStore.rawOrder(order)` gives `data` the shape a store sends: snake_case, money as decimal strings, status as a number.
 - **Uninstall:** `hub.uninstall()` refuses the app's tokens and suspends its subscriptions; installing again resumes them.
+
+## Storefront scripts
+
+Pass your `storefront.scripts` from `app-config.json` to `ExampleDashboard.start({ ..., scripts })`, and `/store` runs them on an example store page, linked from the dashboard. As on a real store, `window.FlyCommerce` is set first, `interactive` scripts load once the page can be used and `idle` ones after it has loaded, each `async`, so in no guaranteed order. The page's buttons switch between a home and a product page and dispatch `flycommerce:page`.
 
 ## Links
 

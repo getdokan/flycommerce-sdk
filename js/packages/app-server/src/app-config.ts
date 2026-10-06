@@ -7,7 +7,20 @@ export interface AppConfigPage {
   children?: AppConfigPage[];
 }
 
-/** app-config.json: the version this code is, and the dashboard pages it serves. Released from the developer portal. */
+/** interactive: once the page can be used. idle: when the browser is idle after the page has loaded. */
+export type ScriptLoad = 'interactive' | 'idle';
+
+/** A script the store adds to its catalogue pages. It runs with the page's full access, so it's reviewed with the version. */
+export interface AppConfigScript {
+  /** Lower-case letters, numbers and -, up to 40 characters, unique within the app. */
+  handle: string;
+  /** https, on the same host as appUrl. */
+  src: string;
+  /** Defaults to idle. */
+  load?: ScriptLoad;
+}
+
+/** app-config.json: the version this code is, its dashboard pages and its storefront scripts. Released from the developer portal. */
 export interface AppConfig {
   appId: string;
   versionId: number;
@@ -15,6 +28,7 @@ export interface AppConfig {
   quote?: string;
   appUrl: string;
   dashboard: { pages: AppConfigPage[] };
+  storefront?: { scripts: AppConfigScript[] };
 }
 
 export class AppConfigError extends Error {
@@ -27,11 +41,14 @@ export class AppConfigError extends Error {
   }
 }
 
-const KEYS = ['appId', 'versionId', 'version', 'quote', 'appUrl', 'dashboard'];
+const KEYS = ['appId', 'versionId', 'version', 'quote', 'appUrl', 'dashboard', 'storefront'];
 const MAX_PAGES = 20;
 const SLUG = /^[A-Za-z0-9_-]{1,100}$/;
 const PATH = /^\/[^\s?#]*$/;
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const MAX_SCRIPTS = 3;
+const HANDLE = /^[a-z0-9-]{1,40}$/;
+const LOADS: ScriptLoad[] = ['interactive', 'idle'];
 
 /**
  * Reads and checks app-config.json, with the rules FlyCommerce applies when it is uploaded, so a broken file
@@ -97,12 +114,20 @@ export function checkAppConfig(value: unknown): string[] {
     problems.push(...checkPages(dashboard.pages));
   }
 
+  if (config.storefront !== undefined) {
+    problems.push(...checkStorefront(config.storefront, config.appUrl));
+  }
+
   return problems;
 }
 
 /** The request paths an app must serve its dashboard page on: every page and sub-page. */
 export function pagePaths(config: AppConfig): string[] {
   return config.dashboard.pages.flatMap((page) => [page.path, ...(page.children ?? []).map((child) => child.path)]);
+}
+
+function isLocal(url: URL): boolean {
+  return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.hostname.endsWith('.test');
 }
 
 function checkAppUrl(value: unknown): string[] {
@@ -112,7 +137,7 @@ function checkAppUrl(value: unknown): string[] {
 
   try {
     const url = new URL(value);
-    const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.hostname.endsWith('.test');
+    const local = isLocal(url);
 
     if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) {
       return ['appUrl must use https (http only for localhost).'];
@@ -122,6 +147,96 @@ function checkAppUrl(value: unknown): string[] {
     }
   } catch {
     return [`appUrl is not a URL: ${value}`];
+  }
+
+  return [];
+}
+
+function checkStorefront(storefront: unknown, appUrl: unknown): string[] {
+  if (typeof storefront !== 'object' || storefront === null || Array.isArray(storefront)) {
+    return ['storefront must be an object, like { "scripts": [ … ] }.'];
+  }
+
+  const { scripts, ...rest } = storefront as Record<string, unknown>;
+  const problems: string[] = [];
+
+  if (Object.keys(rest).length > 0) {
+    problems.push(`storefront takes only scripts; it does not take ${Object.keys(rest).join(', ')}.`);
+  }
+  if (!Array.isArray(scripts) || scripts.length > MAX_SCRIPTS) {
+    problems.push(`storefront.scripts must be a list of up to ${MAX_SCRIPTS} scripts.`);
+    return problems;
+  }
+
+  let appHost: string | null = null;
+  try {
+    appHost = typeof appUrl === 'string' ? new URL(appUrl).hostname : null;
+  } catch {
+    // checkAppUrl reports it.
+  }
+
+  const handles: string[] = [];
+
+  scripts.forEach((script, index) => {
+    const where = `storefront.scripts[${index}]`;
+
+    if (typeof script !== 'object' || script === null || Array.isArray(script)) {
+      problems.push(`${where} must be an object.`);
+      return;
+    }
+
+    const { handle, src, load, ...others } = script as Record<string, unknown>;
+
+    if (Object.keys(others).length > 0) {
+      problems.push(`${where} does not take ${Object.keys(others).join(', ')}.`);
+    }
+    if (typeof handle !== 'string' || !HANDLE.test(handle)) {
+      problems.push(`${where}.handle must be lower-case letters, numbers and -, up to 40 characters.`);
+    } else {
+      handles.push(handle);
+    }
+    problems.push(...checkScriptSrc(src, appHost, where));
+    if (load !== undefined && !LOADS.includes(load as ScriptLoad)) {
+      problems.push(`${where}.load must be ${LOADS.join(' or ')}.`);
+    }
+  });
+
+  const repeated = [...new Set(handles.filter((handle, index) => handles.indexOf(handle) !== index))];
+
+  if (repeated.length > 0) {
+    problems.push(`Each script handle must be unique; repeated: ${repeated.join(', ')}.`);
+  }
+
+  return problems;
+}
+
+function checkScriptSrc(src: unknown, appHost: string | null, where: string): string[] {
+  if (typeof src !== 'string' || src.length > 2000) {
+    return [`${where}.src must be a URL of up to 2000 characters.`];
+  }
+  // URL() would turn \ into /, so the hub and the browser could disagree on the host.
+  if (src.includes('\\')) {
+    return [`${where}.src must not contain \\.`];
+  }
+
+  let url: URL;
+  try {
+    url = new URL(src);
+  } catch {
+    return [`${where}.src is not a URL: ${src}`];
+  }
+
+  if (url.protocol !== 'https:' && !(isLocal(url) && url.protocol === 'http:')) {
+    return [`${where}.src must use https (http only for localhost).`];
+  }
+  if (url.username !== '' || url.password !== '') {
+    return [`${where}.src must not contain a user name or password.`];
+  }
+  if (src.includes('#')) {
+    return [`${where}.src must not have a #.`];
+  }
+  if (appHost !== null && url.hostname !== appHost) {
+    return [`${where}.src must be on ${appHost}, the host in appUrl.`];
   }
 
   return [];

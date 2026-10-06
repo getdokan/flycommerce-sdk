@@ -114,3 +114,20 @@ export interface SessionTokenResponse {
 export interface ToastOptions {
   type?: 'success' | 'error' | 'warning' | 'info';
 }
+
+/** `window.FlyCommerce` on a storefront page that runs an app's script. It holds nothing about the shopper. */
+export interface StorefrontContext {
+  /** The store's domain, e.g. demo.flycom.shop. */
+  store: string;
+  locale: string;
+  /** ISO 4217, e.g. USD. */
+  currency: string;
+  /** The kind of page the script loaded on, e.g. home, product or category. */
+  pageType: string;
+}
+
+/** The detail of `flycommerce:page`, dispatched on `window` after each client-side navigation. */
+export interface StorefrontPageDetail {
+  pageType: string;
+  path: string;
+}
