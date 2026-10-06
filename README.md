@@ -6,7 +6,7 @@ Tools for building apps on [FlyCommerce](https://flycommerce.com): apps that mer
 
 ## Packages
 
-> **Preview.** The packages aren't on npm yet; the first release comes with FlyCommerce's app platform launch.
+> **Preview.** Preview builds are on npm under the `next` tag while FlyCommerce's app platform is in testing, for example `npm install @flycommerce/app-server@next`. The first stable release comes with the launch.
 
 ### JavaScript and TypeScript
 
