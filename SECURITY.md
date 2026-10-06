@@ -33,7 +33,7 @@ Out of scope here: FlyCommerce's hosted services (the dashboard, stores, the API
 
 ## How releases are protected
 
-The packages aren't on npm yet. From their first release:
+Preview builds under the `next` tag are published by a maintainer from their machine, without provenance, while the app platform is in testing. From the first stable release:
 
 - They're published from GitHub Actions with npm Trusted Publishing and [provenance](https://docs.npmjs.com/generating-provenance-statements), so no long-lived npm token exists.
 - Every release needs a maintainer's approval in the `release` environment.

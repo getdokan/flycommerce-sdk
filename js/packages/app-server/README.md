@@ -13,7 +13,7 @@ Server-side building blocks for FlyCommerce apps, on Node's own `http` module an
 
 ## Install
 
-> **Not on npm yet.** The first release comes with FlyCommerce's app platform launch. Until then, build it from this repository.
+> **Preview.** On npm under the `next` tag while FlyCommerce's app platform is in testing: `npm install @flycommerce/app-server@next`. The first stable release comes with the launch.
 
 ```bash
 npm install @flycommerce/app-server

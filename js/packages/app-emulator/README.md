@@ -6,7 +6,7 @@ A local FlyCommerce emulator for developing and testing your app, with no accoun
 
 ## Install
 
-> **Not on npm yet.** The first release comes with FlyCommerce's app platform launch. Until then, build it from this repository.
+> **Preview.** On npm under the `next` tag while FlyCommerce's app platform is in testing: `npm install @flycommerce/app-emulator@next`. The first stable release comes with the launch.
 
 ```bash
 npm install --save-dev @flycommerce/app-emulator
