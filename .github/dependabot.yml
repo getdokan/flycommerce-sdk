@@ -16,6 +16,9 @@ updates:
       # Types follow the oldest Node the packages support (22), not the newest.
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
+      # A new TypeScript major changes the published .d.ts files; upgrade it on purpose, not from a weekly PR.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
