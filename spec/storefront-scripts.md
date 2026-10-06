@@ -17,7 +17,7 @@ A script runs on the store's own pages, with the page's full access: its DOM, it
   - sign-in and account pages: login, register, forgot and reset password, OTP verification, and `/private`;
   - the dashboard: `/admin`, `/dashboard` and `/vendor`.
 
-  Navigating into one of them reloads the page, so no app script carries over.
+  Navigating into or out of one of them reloads the page, so no app script carries over in either direction.
 
 Review covers the URL, not every later copy of the file behind it. That's why FlyCommerce can suspend an app's scripts at any time.
 
