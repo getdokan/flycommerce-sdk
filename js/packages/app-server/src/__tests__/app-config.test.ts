@@ -190,6 +190,23 @@ describe('paths and the install redirect in app-config.json', () => {
     assert.match(checkAppConfig(withChanges({ install: '/auth/callback' })).join(), /install must be an object/);
   });
 
+  it('keeps the joined install redirect within 255 characters and its host in ASCII, as FlyCommerce does', () => {
+    const redirect = (appUrl: string, redirectUrl: string) => checkAppConfig(withChanges({ appUrl, install: { redirectUrl } })).join('\n');
+    const base = 'https://crm.example.com';
+
+    assert.equal(redirect(base, `/${'a'.repeat(255 - base.length - 1)}`), '');
+    assert.match(redirect(base, `/${'a'.repeat(256 - base.length - 1)}`), /at most 255 characters once joined to appUrl/);
+    assert.match(redirect('https://bücher.example', '/auth/callback'), /ASCII host; write an international domain in its xn-- form/);
+    assert.match(redirect('https://bücher.example', 'https://bücher.example/auth/callback'), /ASCII host/);
+    assert.equal(redirect('https://xn--bcher-kva.example', '/auth/callback'), '');
+  });
+
+  it('keeps the install redirect exactly as written, since it is compared byte for byte', () => {
+    const resolved = resolveAppConfig({ ...valid, appUrl: 'https://Dev.Example.com', install: { redirectUrl: '/Auth/Callback' } });
+
+    assert.equal(resolved.install?.redirectUrl, 'https://Dev.Example.com/Auth/Callback');
+  });
+
   it('still checks versionId and version when they are there', () => {
     const problems = checkAppConfig(withChanges({ versionId: 0, version: '1.2' })).join('\n');
 

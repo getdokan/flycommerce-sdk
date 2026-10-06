@@ -115,7 +115,7 @@ Write script `src` and `install.redirectUrl` as paths, so the same file works wi
 }
 ```
 
-`resolveAppConfig(config, { appUrl })` returns the config with those paths as absolute URLs on `appUrl` (the file's own, or the one given), which is what FlyCommerce stores. See [`spec/app-config.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/app-config.md).
+`resolveAppConfig(config, { appUrl })` returns the config with those paths as absolute URLs on `appUrl` (the file's own, or the one given), which is what FlyCommerce stores. The install redirect is kept exactly as written, since the install exchange compares it byte for byte; it needs an ASCII host and at most 255 characters once joined to `appUrl`. See [`spec/app-config.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/app-config.md).
 
 ### Storefront scripts
 

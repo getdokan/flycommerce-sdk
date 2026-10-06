@@ -56,6 +56,8 @@ const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const MAX_SCRIPTS = 3;
 const HANDLE = /^[a-z0-9-]{1,40}$/;
 const LOADS: ScriptLoad[] = ['interactive', 'idle'];
+// FlyCommerce keeps the redirect URL, joined to appUrl, in 255 characters.
+const MAX_REDIRECT_URL = 255;
 
 /**
  * Reads and checks app-config.json, with the rules FlyCommerce applies when it is uploaded, so a broken file
@@ -112,7 +114,7 @@ export function checkAppConfig(value: unknown): string[] {
   problems.push(...checkAppUrl(config.appUrl));
 
   if (config.install !== undefined) {
-    problems.push(...checkInstall(config.install, appHostOf(config.appUrl)));
+    problems.push(...checkInstall(config.install, config.appUrl));
   }
 
   const dashboard = config.dashboard as { pages?: unknown } | undefined;
@@ -199,7 +201,7 @@ function isPath(value: string): boolean {
   return value.startsWith('/') && !value.startsWith('//');
 }
 
-function checkInstall(install: unknown, appHost: string | null): string[] {
+function checkInstall(install: unknown, appUrl: unknown): string[] {
   if (typeof install !== 'object' || install === null || Array.isArray(install)) {
     return ['install must be an object, like { "redirectUrl": "/auth/callback" }.'];
   }
@@ -210,8 +212,25 @@ function checkInstall(install: unknown, appHost: string | null): string[] {
   if (Object.keys(rest).length > 0) {
     problems.push(`install takes only redirectUrl; it does not take ${Object.keys(rest).join(', ')}.`);
   }
-  if (redirectUrl !== undefined) {
-    problems.push(...checkUrlOnApp(redirectUrl, appHost, 'install.redirectUrl'));
+  if (redirectUrl === undefined) {
+    return problems;
+  }
+
+  const urlProblems = checkUrlOnApp(redirectUrl, appHostOf(appUrl), 'install.redirectUrl');
+
+  if (urlProblems.length > 0 || typeof appUrl !== 'string') {
+    return [...problems, ...urlProblems];
+  }
+
+  // The code exchange compares it byte for byte, so it is kept exactly as written, in ASCII.
+  const joined = resolveOnAppUrl(redirectUrl as string, appUrl);
+  const host = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(joined)?.[1] ?? '';
+
+  if (/[^\x00-\x7f]/.test(host)) {
+    problems.push('install.redirectUrl must have an ASCII host; write an international domain in its xn-- form.');
+  }
+  if (joined.length > MAX_REDIRECT_URL) {
+    problems.push(`install.redirectUrl is at most ${MAX_REDIRECT_URL} characters once joined to appUrl.`);
   }
 
   return problems;

@@ -9,7 +9,7 @@ Only `appUrl` differs between environments; everything else is a path on it. A d
 - `app-config.json`: the production app, the one merchants install and FlyCommerce reviews;
 - `app-config.<name>.json`, like `app-config.dev.json`: another app, such as an unpublished development app.
 
-The files differ in `appId`, and `appUrl` when the environment has a fixed one. `flycommerce app dev` replaces `appUrl` with its tunnel.
+The files differ in `appId`, and `appUrl` when the environment has a fixed one. Every file has an `appUrl`, since the app's server loads it too; `flycommerce app dev` replaces it with its tunnel only in what it pushes.
 
 ## Example
 
@@ -37,7 +37,7 @@ The files differ in `appId`, and `appUrl` when the environment has a fixed one. 
 | `quote` | Optional. Up to 140 characters. |
 | `appUrl` | Required. Where the app is served: `https`, with no query string or `#`. Plain `http` only for `localhost`, `127.0.0.1`, `[::1]` and `.test` hosts, which FlyCommerce accepts only in local environments. |
 | `install` | Optional. Takes only `redirectUrl`. |
-| `install.redirectUrl` | Where installs are sent back with their one-time code: a path on `appUrl`, or an `https` URL on `appUrl`'s host. When present, releasing or pushing the file sets the app's redirect URL, and the portal shows it as set by `app-config.json`. |
+| `install.redirectUrl` | Where installs are sent back with their one-time code: a path on `appUrl`, or an `https` URL on `appUrl`'s host. When present, releasing or pushing the file sets the app's redirect URL, and the portal shows it as set by `app-config.json`. It's kept exactly as written, since the install exchange compares it byte for byte: an ASCII host (an international domain in its `xn--` form), and at most 255 characters once joined to `appUrl`. |
 | `dashboard.pages` | Required, may be empty. Up to 20 pages, each `{ slug, label, path, children? }`. See below. |
 | `storefront.scripts` | Optional. Up to 3 scripts. See [storefront-scripts.md](storefront-scripts.md). |
 
