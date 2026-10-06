@@ -1,6 +1,6 @@
 # flycommerce-apps
 
-Teaches Claude Code to build FlyCommerce apps that merchants install: the install code exchange, dashboard pages, session tokens, calling the store as the user or the app, webhooks, `app-config.json`, background jobs, and private versus listed apps.
+Teaches Claude Code to build FlyCommerce apps that merchants install: the install code exchange, dashboard pages, storefront scripts, session tokens, calling the store as the user or the app, webhooks, `app-config.json`, background jobs, private versus listed apps, and developing and releasing with the `flycommerce` CLI.
 
 Installing it also installs **flycommerce-api** (store endpoints) and **flycommerce-ui** (pages built with `@flycommerce/ui`).
 

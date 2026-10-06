@@ -1,6 +1,6 @@
 ---
 name: flycommerce-apps
-description: Build a FlyCommerce app that merchants install into their store. Covers the install code exchange, dashboard pages and the app bridge, storefront scripts, verifying session tokens, calling the store as the user or as the app, webhooks, app-config.json, background jobs, and private versus listed apps. Use when the project is a FlyCommerce app, or the task mentions FlyCommerce apps, app installs, session tokens, storefront scripts, app-config.json or the FlyCommerce developer portal.
+description: Build a FlyCommerce app that merchants install into their store. Covers the install code exchange, dashboard pages and the app bridge, storefront scripts, verifying session tokens, calling the store as the user or as the app, webhooks, app-config.json, background jobs, private versus listed apps, and developing and releasing with the flycommerce CLI. Use when the project is a FlyCommerce app, or the task mentions FlyCommerce apps, app installs, session tokens, storefront scripts, app-config.json, the flycommerce CLI or the FlyCommerce developer portal.
 ---
 
 # Building a FlyCommerce app
@@ -30,7 +30,7 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 - **The framework.** If a skill or plugin for the project's framework is enabled (Laravel, Next.js, Express, Rails, and so on), follow it for routing, middleware, queues, migrations and tests. Put the FlyCommerce rules below on top of it.
 - **Design.** A design skill or Figma connector, if the session has one, is for reading the design. The components still come from `@flycommerce/ui`, through the flycommerce-ui skill.
 - **The app bridge.** If `@flycommerce/app-bridge` is in the project's dependencies, use it for session tokens, the title bar, toasts, confirmations and navigation. If it isn't, don't add it from memory: ask the developer how their pages talk to the dashboard.
-- **Testing against a store.** The developer installs the app on their own store from the developer portal. Don't create accounts, stores or credentials yourself; ask for test values and keep them out of the repo.
+- **Testing against a store.** The developer runs a development app on their own store with `flycommerce app dev` (below). Don't create accounts, stores or credentials yourself; ask for test values and keep them out of the repo.
 
 ## Rules that must hold
 
@@ -51,8 +51,8 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 - Pages have no cookie session. Each request to the app's server carries `Authorization: Bearer <session token>`, fetched fresh from the bridge for every request.
 
 ### Storefront scripts
-- Use them for features shoppers see on the store: chat, reviews, badges. Declare up to 3 in `app-config.json`: `"storefront": { "scripts": [{ "handle": "chat", "src": "https://<app host>/chat.js", "load": "idle" }] }`.
-- `handle` is `[a-z0-9-]{1,40}` and unique; `src` is `https`, on the same host as `appUrl`, up to 2000 characters, with no secrets in it; `load` is `interactive` or `idle` (the default). Prefer `idle` unless the feature is needed as soon as the page can be used.
+- Use them for features shoppers see on the store: chat, reviews, badges. Declare up to 3 in `app-config.json`: `"storefront": { "scripts": [{ "handle": "chat", "src": "/chat.js", "load": "idle" }] }`.
+- `handle` is `[a-z0-9-]{1,40}` and unique; `src` is a path on `appUrl` (write it this way) or an `https` URL on the same host, up to 2000 characters, with no secrets in it; `load` is `interactive` or `idle` (the default). Prefer `idle` unless the feature is needed as soon as the page can be used.
 - Be honest with the developer about the trust model: the script runs on the store's pages with the page's full access. FlyCommerce serves only what the app declares, from its own host, after reviewing the version; the merchant grants `storefront.scripts` at install and can switch scripts off; FlyCommerce can suspend them. They never run on the builder or previews, the customer account (`/customers/*`), checkout, payment and order pages, sign-in and account pages (login, register, forgot and reset password, OTP verification, `/private`), or the dashboard (`/admin`, `/dashboard`, `/vendor`). Navigating into or out of those pages reloads the page, so no app script sees their data; don't promise more than that, and never try to reach them.
 - Read the store's context from `window.FlyCommerce` (`store`, `locale`, `currency`, `pageType`) and follow client-side navigation with the `flycommerce:page` event (`detail: { pageType, path }`). `pageType` in the global is the page the script loaded on; after that, only the event is current. Type both with `import type {} from '@flycommerce/app-bridge/storefront'`. Spec: https://github.com/getdokan/flycommerce-sdk/blob/main/spec/storefront-scripts.md.
 - There's no customer data: no shopper ID, name, email, cart or token. Never read the store's storage, cookies or tokens to get it, and never send the page's data to the app's server beyond what the feature needs.
@@ -86,9 +86,21 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 - Never log tokens, secrets, codes, query strings or customer data.
 
 ### app-config.json
+- Only `appUrl` differs between environments. Write every page `path`, script `src` and `install.redirectUrl` as a path on it (`"/auth/callback"`), never with a host, so the same file works for production, a development app and a tunnel. Spec: https://github.com/getdokan/flycommerce-sdk/blob/main/spec/app-config.md.
+- One file per app: `app-config.json` for the production app, `app-config.<name>.json` (like `app-config.dev.json`) for another, differing in `appId`.
+- `install.redirectUrl` is optional; when set, releasing the file sets the app's redirect URL. Set it, so installs follow `appUrl`.
 - `storefront` is optional and takes only `scripts` (see above).
 - Pages: at most 20, at most one level of `children`; `label` up to 40 characters; `slug` of letters, numbers, `-` and `_`; `path` starting with `/` with no spaces, `?` or `#`.
-- `appUrl` is `https` (plain `http` only for `localhost` and `.test`). `appId`, `versionId` and `version` match the changelog entry the developer created in the portal's **Versions** tab first.
+- `appUrl` is `https` (plain `http` only for `localhost` and `.test`). `versionId` and `version` are optional: leave them out and let `flycommerce app release` fill them in. If they're there, they must match the changelog entry.
+- Check the file with `loadAppConfig` from `@flycommerce/app-server` at the server's start; `appServerConfigFromEnv` reads `APP_URL` and defaults `REDIRECT_URI` to `APP_URL/auth/callback`.
+
+### Develop and release with the CLI
+- `@flycommerce/cli` (`npx flycommerce`) does the portal bookkeeping. Prefer it to describing portal clicks. Guide: https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/cli.
+- One app per environment: the production app merchants install, and an unpublished development app installed only on the developer's own stores. `flycommerce app link --config dev` writes the development app's ID into `app-config.dev.json`.
+- `flycommerce app dev --config dev -- <server command>` opens a tunnel (Cloudflare's `cloudflared`, or `--tunnel-url`), pushes the config to the development app with `appUrl` set to the tunnel, and runs the server with `APP_URL`, `REDIRECT_URI`, `PORT` and `APP_CONFIG_FILE` set. The server reads those rather than hard-coding a host or port, and loads the config from `APP_CONFIG_FILE` when it's set. The development app's ID and secret go in the developer's `.env`, never in the repo.
+- `app dev` refuses a published app. Never work around that by pointing the production app at a tunnel: merchants' stores would load it.
+- `flycommerce app release --version 1.2.0 --message "…"` checks the config, creates the version and releases it; a listed app's new pages, permissions and scripts wait for review. In CI it reads a per-app deploy token from `FLYCOMMERCE_TOKEN`.
+- `flycommerce login` signs in through the browser. Never ask the developer for their token, and never print, log or commit one.
 
 ### Private and listed apps
 - An unpublished app is **private**: it installs only on stores owned by the developer account that owns the app, on a marketplace or a standalone store alike, and no other merchant sees it. Publishing lists it for every merchant, after FlyCommerce's review.
