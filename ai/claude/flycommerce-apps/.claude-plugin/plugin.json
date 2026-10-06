@@ -1,7 +1,7 @@
 {
   "name": "flycommerce-apps",
-  "version": "0.1.1",
-  "description": "Build FlyCommerce apps that merchants install: installs, session tokens, dashboard pages, store API calls, webhooks, private and listed apps. Brings in flycommerce-api and flycommerce-ui.",
+  "version": "0.2.0",
+  "description": "Build FlyCommerce apps that merchants install: installs, session tokens, dashboard pages, storefront scripts, store API calls, webhooks, private and listed apps. Brings in flycommerce-api and flycommerce-ui.",
   "author": {
     "name": "FlyCommerce",
     "url": "https://github.com/getdokan"

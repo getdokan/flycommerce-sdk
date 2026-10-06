@@ -50,6 +50,22 @@ export function App() {
 }
 ```
 
+## Storefront scripts
+
+A script your app adds to the storefront (declared under `storefront.scripts` in `app-config.json`) can read the store's context from `window.FlyCommerce`, and hear client-side navigation from the `flycommerce:page` event. To type both, opt in once:
+
+```ts
+import type {} from '@flycommerce/app-bridge/storefront';
+
+const { locale, currency, pageType } = window.FlyCommerce ?? {};
+
+window.addEventListener('flycommerce:page', (event) => {
+  // event.detail: { pageType, path }
+});
+```
+
+`StorefrontContext` is `{ store, locale, currency, pageType }`. It holds nothing about the shopper. `pageType` is the page the script loaded on; follow the event for later pages. The types are also exported from the main entry, without the global. See [`spec/storefront-scripts.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/storefront-scripts.md).
+
 ## On your server
 
 Verify the session token before trusting it:

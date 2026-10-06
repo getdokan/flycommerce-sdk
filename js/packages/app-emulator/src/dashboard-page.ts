@@ -7,6 +7,8 @@ export interface HostPageConfig {
   store: string;
   slug: string;
   pages: { label: string; slug: string }[];
+  /** Links to the example store page when the app has storefront scripts. */
+  storefront?: boolean;
   role: string;
   roles: string[];
   locale: string;
@@ -263,6 +265,7 @@ export function hostPage(config: HostPageConfig): string {
   <div style="color:var(--muted);font-size:12px">${escapeHtml(config.store)}</div>
   <h2>Apps</h2>
   ${menu}
+  ${config.storefront ? '<h2>Storefront</h2><a href="/storefront">Example storefront</a>' : ''}
 </nav>
 <main>
   <div class="fake-bar">

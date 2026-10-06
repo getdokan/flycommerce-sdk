@@ -93,3 +93,67 @@ describe('app-config.json', () => {
     }
   });
 });
+
+describe('storefront scripts in app-config.json', () => {
+  const chat = { handle: 'chat', src: 'https://crm.example.com/widget.js', load: 'interactive' };
+  const withScripts = (scripts: unknown) => withChanges({ storefront: { scripts } });
+  const problemsWith = (script: Record<string, unknown>) => checkAppConfig(withScripts([{ ...chat, ...script }])).join('\n');
+
+  it('accepts up to three scripts from the app host, with or without load', () => {
+    assert.deepStrictEqual(
+      checkAppConfig(
+        withScripts([
+          chat,
+          { handle: 'reviews-2', src: 'https://crm.example.com/reviews.js?v=3', load: 'idle' },
+          { handle: 'badge', src: 'https://crm.example.com/badge.js' },
+        ])
+      ),
+      []
+    );
+    assert.deepStrictEqual(checkAppConfig(withScripts([])), []);
+    assert.deepStrictEqual(
+      checkAppConfig(
+        withChanges({
+          appUrl: 'http://localhost:4600',
+          storefront: { scripts: [{ handle: 'chat', src: 'http://localhost:4600/widget.js' }] },
+        })
+      ),
+      []
+    );
+  });
+
+  it('refuses a bad handle, a repeated handle, and a bad load', () => {
+    assert.match(problemsWith({ handle: 'Chat' }), /handle must be lower-case letters/);
+    assert.match(problemsWith({ handle: 'x'.repeat(41) }), /handle must be lower-case letters/);
+    assert.match(checkAppConfig(withScripts([chat, { ...chat, src: 'https://crm.example.com/other.js' }])).join(), /repeated: chat/);
+    assert.match(problemsWith({ load: 'beforeInteractive' }), /load must be interactive or idle/);
+  });
+
+  it('takes scripts only over https, from the app host, up to 2000 characters', () => {
+    assert.match(problemsWith({ src: 'http://crm.example.com/widget.js' }), /src must use https/);
+    assert.match(problemsWith({ src: 'https://cdn.example.net/widget.js' }), /src must be on crm\.example\.com/);
+    assert.match(problemsWith({ src: 'https://example.com/widget.js' }), /src must be on crm\.example\.com/);
+    assert.match(problemsWith({ src: '/widget.js' }), /src is not a URL/);
+    assert.match(problemsWith({ src: `https://crm.example.com/${'a'.repeat(2000)}.js` }), /up to 2000 characters/);
+    assert.match(problemsWith({ src: 'https://user:secret@crm.example.com/widget.js' }), /user name or password/);
+    assert.match(problemsWith({ src: 'https://user@crm.example.com/widget.js' }), /user name or password/);
+    assert.match(problemsWith({ src: 'https://crm.example.com/widget.js#v2' }), /must not have a #/);
+    assert.match(problemsWith({ src: 'https://crm.example.com/widget.js#' }), /must not have a #/);
+    assert.match(problemsWith({ src: 'https://crm.example.com\\@evil.example/widget.js' }), /must not contain \\\./);
+    assert.match(problemsWith({ src: 'https://crm.example.com/js\\widget.js' }), /must not contain \\\./);
+  });
+
+  it('allows three scripts at most, and no keys it does not know', () => {
+    const four = ['a', 'b', 'c', 'd'].map((handle) => ({ handle, src: `https://crm.example.com/${handle}.js` }));
+
+    assert.match(checkAppConfig(withScripts(four)).join(), /list of up to 3 scripts/);
+    assert.match(checkAppConfig(withScripts({ chat })).join(), /list of up to 3 scripts/);
+    assert.match(problemsWith({ placement: 'head' }), /scripts\[0\] does not take placement/);
+    assert.match(
+      checkAppConfig(withChanges({ storefront: { scripts: [chat], widget: {} } })).join(),
+      /storefront takes only scripts; it does not take widget/
+    );
+    assert.match(checkAppConfig(withChanges({ storefront: 'chat.js' })).join(), /storefront must be an object/);
+    assert.match(checkAppConfig(withChanges({ storefront: {} })).join(), /storefront\.scripts must be a list/);
+  });
+});

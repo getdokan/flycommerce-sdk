@@ -39,6 +39,10 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     },
+    "./storefront": {
+      "types": "./dist/storefront.d.ts",
+      "import": "./dist/storefront.js"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",
