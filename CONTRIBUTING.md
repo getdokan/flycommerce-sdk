@@ -12,6 +12,7 @@ js/                       npm workspaces
   packages/app-bridge/
   packages/app-server/
   packages/app-emulator/
+  packages/cli/
   .changeset/             pending release notes
 ai/claude/                Claude Code plugins, one folder each
 .claude-plugin/           the marketplace that lists them

@@ -1,0 +1,182 @@
+import { ChildProcess, spawn } from 'node:child_process';
+import { AppConfig, checkAppConfig, resolveAppConfig } from '@flycommerce/app-server';
+import { readConfigFile } from './config-file.js';
+import { CliError, Context } from './context.js';
+import { ApiError, PortalApi } from './portal.js';
+import { Tunnel, startCloudflared } from './tunnel.js';
+import { DevConfigResult } from './types.js';
+
+export const DEFAULT_PORT = 4000;
+export const DEFAULT_COMMAND = ['npm', 'start'];
+
+export interface DevOptions {
+  config?: string;
+  port?: string;
+  tunnelUrl?: string;
+  command: string[];
+}
+
+/** Serves a development app from this computer: tunnel, push the config with appUrl = tunnel, run the app's server. Resolves to its exit code. */
+export async function dev(ctx: Context, portal: string, options: DevOptions): Promise<number> {
+  const port = options.port === undefined ? DEFAULT_PORT : Number(options.port);
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new CliError(`--port must be a port number, like ${DEFAULT_PORT}.`);
+  }
+
+  const file = readConfigFile(ctx, options.config);
+  // Versions are for releases; a dev push has none.
+  const { versionId: _versionId, version: _version, ...config } = file.config;
+  // appUrl is replaced by the tunnel, so a dev file may leave it out.
+  const shapeProblems = checkAppConfig({ appUrl: 'https://tunnel.invalid', ...config });
+
+  if (shapeProblems.length > 0) {
+    throw new CliError(`${file.name} is not valid:`, shapeProblems);
+  }
+
+  const api = PortalApi.signedIn(portal, ctx);
+  let tunnel: Tunnel | undefined;
+  let appUrl: string;
+
+  if (options.tunnelUrl !== undefined) {
+    appUrl = options.tunnelUrl.replace(/\/+$/, '');
+  } else {
+    ctx.stdout(`Starting a Cloudflare quick tunnel to http://localhost:${port}…`);
+    tunnel = await startCloudflared(ctx, port);
+    appUrl = tunnel.url;
+  }
+
+  const stopTunnel = () => tunnel?.process.kill();
+
+  try {
+    const pushed = { ...config, appUrl };
+    const problems = checkAppConfig(pushed);
+
+    if (problems.length > 0) {
+      const absoluteSrc = problems.some((problem) => /^storefront\.scripts\[\d+\]\.src must be on /.test(problem));
+      throw new CliError(
+        `${file.name} doesn't work with appUrl ${appUrl}:`,
+        absoluteSrc ? [...problems, 'Write each script src as a path, like /storefront/widget.js, so it follows appUrl.'] : problems
+      );
+    }
+
+    let result: DevConfigResult;
+
+    try {
+      result = await api.put<DevConfigResult>(`apps/${encodeURIComponent(file.appId)}/dev-config`, { config: pushed });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        throw new CliError(
+          `${file.appId} is published, so app dev won't change it: merchants' stores run it. Use a development app: flycommerce app link --config dev`
+        );
+      }
+      throw error;
+    }
+
+    const resolved = resolveAppConfig(pushed as unknown as AppConfig);
+    const redirectUri = resolved.install?.redirectUrl ?? `${appUrl}/auth/callback`;
+    const command = options.command.length > 0 ? options.command : DEFAULT_COMMAND;
+
+    printSummary(ctx, file.name, result, appUrl, command, port);
+
+    if (resolved.install?.redirectUrl === undefined) {
+      ctx.stdout(
+        `\nNote: ${file.name} has no install.redirectUrl, so the app keeps the redirect URL set in the portal and installs won't come back through the tunnel. Add "install": { "redirectUrl": "/auth/callback" }.`
+      );
+    }
+
+    return await runApp(
+      ctx,
+      command,
+      {
+        ...ctx.env,
+        APP_URL: appUrl,
+        REDIRECT_URI: redirectUri,
+        PORT: String(port),
+        APP_CONFIG_FILE: file.path,
+      },
+      tunnel
+    );
+  } finally {
+    stopTunnel();
+  }
+}
+
+function printSummary(ctx: Context, fileName: string, result: DevConfigResult, appUrl: string, command: string[], port: number): void {
+  const lines = [
+    `\nPushed ${fileName} to the development app, served from ${result.appUrl || appUrl}.`,
+    '',
+    `Install it on your store:  ${result.installUrl}`,
+  ];
+  const pages = (result.pages ?? []).flatMap((page) => [page, ...(page.children ?? [])]);
+
+  if (pages.length > 0) {
+    lines.push('', "Dashboard pages (open them from Apps in your store's dashboard):");
+    lines.push(...pages.map((page) => `  ${page.label ?? page.slug ?? ''}  ${page.url ?? page.path ?? ''}`));
+  }
+  if ((result.scripts ?? []).length > 0) {
+    lines.push('', "Storefront scripts (they run on your store's catalogue pages once installed):");
+    lines.push(...result.scripts.map((script) => `  ${script.handle ?? ''}  ${script.src ?? ''}`));
+  }
+
+  lines.push('', `Running ${command.join(' ')} with APP_URL, REDIRECT_URI and PORT=${port}. Ctrl+C stops it and the tunnel.`, '');
+  ctx.stdout(lines.join('\n'));
+}
+
+function runApp(ctx: Context, command: string[], env: NodeJS.ProcessEnv, tunnel: Tunnel | undefined): Promise<number> {
+  return new Promise((resolve, reject) => {
+    let child: ChildProcess;
+    let stopping = false;
+
+    try {
+      child = spawn(command[0], command.slice(1), {
+        cwd: ctx.cwd,
+        env,
+        stdio: 'inherit',
+        // npm and other .cmd shims only start through a shell on Windows.
+        shell: process.platform === 'win32',
+      });
+    } catch (error) {
+      reject(new CliError(`Couldn't run ${command[0]}: ${(error as Error).message}`));
+      return;
+    }
+
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      child.kill('SIGTERM');
+      // A server that ignores SIGTERM still goes.
+      setTimeout(() => child.kill('SIGKILL'), 5000).unref();
+    };
+
+    const onAbort = () => stop();
+    ctx.signal?.addEventListener('abort', onAbort, { once: true });
+    if (ctx.signal?.aborted) stop();
+
+    const onTunnelExit = () => {
+      if (stopping) return;
+      ctx.stderr('The tunnel stopped, so the app is no longer reachable. Stopping.');
+      stop();
+    };
+    tunnel?.process.once('exit', onTunnelExit);
+
+    child.once('error', (error: NodeJS.ErrnoException) => {
+      ctx.signal?.removeEventListener('abort', onAbort);
+      reject(
+        new CliError(
+          error.code === 'ENOENT'
+            ? `Couldn't run ${command[0]}: it isn't installed or isn't on PATH. Put your server's command after --.`
+            : `Couldn't run ${command[0]}: ${error.message}`
+        )
+      );
+    });
+
+    child.once('exit', (code, signal) => {
+      ctx.signal?.removeEventListener('abort', onAbort);
+      tunnel?.process.off('exit', onTunnelExit);
+      if (ctx.signal?.aborted) return resolve(0);
+      if (stopping) return resolve(1);
+      resolve(code ?? (signal ? 1 : 0));
+    });
+  });
+}
