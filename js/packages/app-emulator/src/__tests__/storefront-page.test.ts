@@ -49,6 +49,17 @@ describe('the example storefront', () => {
     assert.match(menu, /<a href="\/storefront">Example storefront<\/a>/);
   });
 
+  it('loads a script whose src is a path from appUrl', async () => {
+    const dashboard = await start({ appUrl: 'http://127.0.0.1:4600/', scripts: [{ handle: 'welcome', src: '/storefront/welcome.js' }] });
+    const store = await (await fetch(`${dashboard.url}/storefront`)).text();
+
+    assert.ok(
+      store.includes(
+        JSON.stringify({ app: 'chat-app', scripts: [{ handle: 'welcome', src: 'http://127.0.0.1:4600/storefront/welcome.js' }] })
+      )
+    );
+  });
+
   it('has no store page, and no link to one, when the app declares no scripts', async () => {
     const dashboard = await start({ scripts: [] });
     const missing = await fetch(`${dashboard.url}/storefront`);

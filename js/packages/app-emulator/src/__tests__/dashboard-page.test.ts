@@ -40,3 +40,22 @@ describe('the example dashboard menu', () => {
     assert.match(nav, />Settings<\/a>/);
   });
 });
+
+describe('the example dashboard frame', () => {
+  const frameUrl = (html: string) =>
+    JSON.parse(/<script type="application\/json" id="host-config">(.*?)<\/script>/s.exec(html)![1]).frameUrl;
+
+  it("frames appUrl + the page's path, as the dashboard does", () => {
+    const html = hostPage({
+      ...config([{ slug: 'export', label: 'Export orders', path: '/orders/export' }]),
+      appUrl: 'http://localhost:4000/',
+    });
+
+    assert.equal(frameUrl(html), 'http://localhost:4000/orders/export');
+    assert.match(html, /frame\.src = config\.frameUrl \+ '#nonce=' \+ nonce;/);
+  });
+
+  it('frames /<slug> for a page given without a path', () => {
+    assert.equal(frameUrl(hostPage(config([{ slug: 'export', label: 'Export orders' }]))), 'http://localhost:4000/export');
+  });
+});
