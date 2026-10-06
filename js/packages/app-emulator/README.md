@@ -41,7 +41,7 @@ await platform.close();
 
 ## Storefront scripts
 
-Pass your `storefront.scripts` from `app-config.json` to `ExampleDashboard.start({ ..., scripts })`, and `/store` runs them on an example store page, linked from the dashboard. As on a real store, `window.FlyCommerce` is set first, `interactive` scripts load once the page can be used and `idle` ones after it has loaded, each `async`, so in no guaranteed order. The page's buttons switch between a home and a product page and dispatch `flycommerce:page`.
+Pass your `storefront.scripts` from `app-config.json` to `ExampleDashboard.start({ ..., scripts })`, and `/storefront` runs them on an example store page, linked from the dashboard. As on a real store, `window.FlyCommerce` is set first, `interactive` scripts load once the page can be used and `idle` ones after it has loaded, each `async`, so in no guaranteed order. The page's buttons switch between a home and a product page and dispatch `flycommerce:page`.
 
 ## Links
 

@@ -37,7 +37,7 @@ describe('the example storefront', () => {
 
   it('sets window.FlyCommerce before it loads the declared scripts, and links to the page from the dashboard', async () => {
     const dashboard = await start({ scripts });
-    const store = await (await fetch(`${dashboard.url}/store`)).text();
+    const store = await (await fetch(`${dashboard.url}/storefront`)).text();
     const menu = await (await fetch(`${dashboard.url}/apps/inbox`)).text();
     const context = store.indexOf('window.FlyCommerce = {"store":"demo.flycom.shop","locale":"en","currency":"USD","pageType":"home"};');
     const declared = store.indexOf(JSON.stringify({ app: 'chat-app', scripts }));
@@ -46,15 +46,15 @@ describe('the example storefront', () => {
     assert.ok(declared > context, 'the scripts, in the declared order, come after the context');
     assert.match(store, /new CustomEvent\('flycommerce:page', \{ detail \}\)/);
     assert.match(store, /data-page-type="product" data-path="\/products\/green-tea"/);
-    assert.match(menu, /<a href="\/store">Example store<\/a>/);
+    assert.match(menu, /<a href="\/storefront">Example storefront<\/a>/);
   });
 
   it('has no store page, and no link to one, when the app declares no scripts', async () => {
     const dashboard = await start({ scripts: [] });
-    const missing = await fetch(`${dashboard.url}/store`);
+    const missing = await fetch(`${dashboard.url}/storefront`);
     const menu = await (await fetch(`${dashboard.url}/apps/inbox`)).text();
 
     assert.equal(missing.status, 404);
-    assert.ok(!menu.includes('href="/store"'));
+    assert.ok(!menu.includes('href="/storefront"'));
   });
 });

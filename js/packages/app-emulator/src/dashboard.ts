@@ -14,7 +14,7 @@ export interface ExampleDashboardOptions {
   appUrl: string;
   store: string;
   pages: { label: string; slug: string }[];
-  /** The app's storefront.scripts from app-config.json; /store then runs them on an example store page. */
+  /** The app's storefront.scripts from app-config.json; /storefront then runs them on an example store page. */
   scripts?: StorefrontScriptConfig[];
   userId?: string;
   locale?: string;
@@ -27,7 +27,7 @@ const ROLES = ['owner', 'admin'];
 // Each role is a different user, as in a real store; one user switching roles would share one user access token.
 const ROLE_USERS: Record<string, string> = { owner: '1', admin: '2' };
 
-/** A stand-in for the merchant dashboard: frames the app's pages and answers the bridge like the real one does, and runs its storefront scripts on /store. */
+/** A stand-in for the merchant dashboard: frames the app's pages and answers the bridge like the real one does, and runs its storefront scripts on /storefront. */
 export class ExampleDashboard {
   private server: RunningServer | null = null;
 
@@ -57,13 +57,13 @@ export class ExampleDashboard {
 
     if (req.method === 'GET' && url.pathname === '/') {
       res.writeHead(302, {
-        Location: options.pages.length === 0 && scripts.length > 0 ? '/store' : `/apps/${options.pages[0]?.slug ?? ''}`,
+        Location: options.pages.length === 0 && scripts.length > 0 ? '/storefront' : `/apps/${options.pages[0]?.slug ?? ''}`,
       });
       res.end();
       return;
     }
 
-    if (req.method === 'GET' && url.pathname === '/store') {
+    if (req.method === 'GET' && url.pathname === '/storefront') {
       if (scripts.length === 0) {
         return sendHtml(res, 404, '<!doctype html><p>This app has no storefront scripts. Add storefront.scripts to app-config.json.</p>');
       }

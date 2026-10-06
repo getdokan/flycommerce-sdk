@@ -58,7 +58,7 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 - There's no customer data: no shopper ID, name, email, cart or token. Never read the store's storage, cookies or tokens to get it, and never send the page's data to the app's server beyond what the feature needs.
 - Scripts load `async`, in no guaranteed order. Make each one self-contained; never depend on another script, or the page's code, having loaded first.
 - Keep the script small and self-contained: one root element of the app's own, prefixed names, no changes to the store's elements, styles or globals, no thrown errors. Ask for consent before tracking; stores have no consent banner yet.
-- Test locally with `@flycommerce/app-emulator`: pass the scripts to `ExampleDashboard.start({ scripts })` and open `/store`.
+- Test locally with `@flycommerce/app-emulator`: pass the scripts to `ExampleDashboard.start({ scripts })` and open `/storefront` on the example dashboard.
 
 ### Session tokens
 - Verify on the server before reading any claim: `alg` is RS256 (refuse anything else, including `none`); the signature verifies with the matching `kid` from `https://app.flycommerce.com/.well-known/jwks.json` (cache an hour, refetch at most every 30 seconds on an unknown `kid`); `exp` and `nbf` hold with a few seconds of leeway; `typ` is `session`; `aud` is the app ID; `iss` is `https://app.flycommerce.com`.
