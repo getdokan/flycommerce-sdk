@@ -12,6 +12,8 @@ export interface AppServerConfig {
   hubApiUrl: string;
   /** Exactly as registered in the developer portal; FlyCommerce compares it byte for byte. */
   redirectUri: string;
+  /** Where the app is served, from APP_URL; `flycommerce app dev` sets it to the tunnel. */
+  appUrl?: string;
   jwksUrl: string;
   allowedIssuers: string[];
   frameAncestors: string[];
@@ -38,12 +40,18 @@ export function list(value: string | undefined, fallback: string[]): string[] {
 
 export function appServerConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AppServerConfig {
   const hubApiUrl = required(env, 'HUB_API_URL');
+  const appUrl = env.APP_URL ? env.APP_URL.replace(/\/+$/, '') : undefined;
+
+  if (!env.REDIRECT_URI && !appUrl) {
+    throw new Error('REDIRECT_URI is required, or APP_URL to use APP_URL/auth/callback.');
+  }
 
   return {
     appId: required(env, 'APP_ID'),
     appSecret: required(env, 'APP_SECRET'),
     hubApiUrl,
-    redirectUri: required(env, 'REDIRECT_URI'),
+    redirectUri: env.REDIRECT_URI || `${appUrl}/auth/callback`,
+    appUrl,
     // Fixed rather than taken from HUB_API_URL: the API answers on more than one host, the issuer on one.
     jwksUrl: env.JWKS_URL ?? `${FLYCOMMERCE_ORIGIN}/.well-known/jwks.json`,
     allowedIssuers: list(env.ALLOWED_ISSUERS, [FLYCOMMERCE_ORIGIN]),
