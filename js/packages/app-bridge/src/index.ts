@@ -60,11 +60,27 @@ export function parseFrameViewport(value: unknown): FrameViewport | null {
   return valid(top) && valid(height) ? { top, height } : null;
 }
 
-// Where @flycommerce/ui, built on Radix, mounts its popovers, selects and menus. Inside the dashboard it caps them at a
-// fixed height rather than the space left in the frame, so they reach past the page and the frame grows to fit.
+// Where @flycommerce/ui (Radix) mounts popovers and menus; inside the dashboard it caps them at a fixed height, so they reach past the page.
 const POPUPS = '[data-radix-popper-content-wrapper]';
 // Room below a popup for its shadow.
 const POPUP_SHADOW = 8;
+// Room for the trigger and the gaps either side of it, when a popup has to move from above its trigger to below.
+const FLIP_ROOM = 64;
+
+/** Where the frame must end for this popup to show whole. */
+function popupEnd(popup: Element): number {
+  const { top, bottom, height } = popup.getBoundingClientRect();
+
+  // Flipped above its trigger and cut off at the top: room below makes Radix, which tries below first, move it back down.
+  if (top < 0 && popup.firstElementChild?.getAttribute('data-side') === 'top') return bottom + height + FLIP_ROOM;
+
+  return bottom + POPUP_SHADOW;
+}
+
+function popupsIn(node: Node): Element[] {
+  if (!(node instanceof Element)) return [];
+  return node.matches(POPUPS) ? [node] : Array.from(node.querySelectorAll(POPUPS));
+}
 
 export class AppBridge {
   public readonly appId: string;
@@ -289,7 +305,7 @@ export class AppBridge {
       let height = root.getBoundingClientRect().height;
 
       document.querySelectorAll(POPUPS).forEach((popup) => {
-        height = Math.max(height, popup.getBoundingClientRect().bottom + window.scrollY + POPUP_SHADOW);
+        height = Math.max(height, popupEnd(popup) + window.scrollY);
       });
       height = Math.ceil(height);
 
@@ -306,14 +322,21 @@ export class AppBridge {
     sizes.observe(root);
 
     // Popups are fixed to the viewport, so opening, moving or closing one changes nothing the root's size shows.
-    const popups = new MutationObserver(() => {
+    const popups = new MutationObserver((records) => {
+      for (const record of records) {
+        record.removedNodes.forEach((node) => popupsIn(node).forEach((popup) => sizes.unobserve(popup)));
+      }
       document.querySelectorAll(POPUPS).forEach((popup) => {
         sizes.observe(popup);
         popups.observe(popup, { attributes: true, attributeFilter: ['style'] });
       });
       schedule();
     });
-    popups.observe(document.body, { childList: true });
+    const watchPopups = () => popups.observe(document.body, { childList: true });
+
+    // A script in <head> runs before <body> exists.
+    if (document.body) watchPopups();
+    else document.addEventListener('DOMContentLoaded', watchPopups, { once: true });
 
     report();
 
