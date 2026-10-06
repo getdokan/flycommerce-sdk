@@ -1,11 +1,11 @@
 ---
 name: flycommerce-apps
-description: Build a FlyCommerce app that merchants install into their store. Covers the install code exchange, dashboard pages and the app bridge, verifying session tokens, calling the store as the user or as the app, webhooks, app-config.json, background jobs, and private versus listed apps. Use when the project is a FlyCommerce app, or the task mentions FlyCommerce apps, app installs, session tokens, app-config.json or the FlyCommerce developer portal.
+description: Build a FlyCommerce app that merchants install into their store. Covers the install code exchange, dashboard pages and the app bridge, storefront scripts, verifying session tokens, calling the store as the user or as the app, webhooks, app-config.json, background jobs, and private versus listed apps. Use when the project is a FlyCommerce app, or the task mentions FlyCommerce apps, app installs, session tokens, storefront scripts, app-config.json or the FlyCommerce developer portal.
 ---
 
 # Building a FlyCommerce app
 
-A FlyCommerce app is a web app the developer hosts. A merchant installs it into their store; it then shows pages inside the merchant's dashboard, calls the store's API, and receives the store's webhooks.
+A FlyCommerce app is a web app the developer hosts. A merchant installs it into their store; it then shows pages inside the merchant's dashboard, can add scripts to the store's storefront, calls the store's API, and receives the store's webhooks.
 
 ## Sources of truth
 
@@ -50,6 +50,16 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 - Every page sends `Content-Security-Policy: frame-ancestors https://*.flycommerce.com https://*.flycom.shop`.
 - Pages have no cookie session. Each request to the app's server carries `Authorization: Bearer <session token>`, fetched fresh from the bridge for every request.
 
+### Storefront scripts
+- Use them for features shoppers see on the store: chat, reviews, badges. Declare up to 3 in `app-config.json`: `"storefront": { "scripts": [{ "handle": "chat", "src": "https://<app host>/chat.js", "load": "idle" }] }`.
+- `handle` is `[a-z0-9-]{1,40}` and unique; `src` is `https`, on the same host as `appUrl`, up to 2000 characters, with no secrets in it; `load` is `interactive` or `idle` (the default). Prefer `idle` unless the feature is needed as soon as the page can be used.
+- Be honest with the developer about the trust model: the script runs on the store's pages with the page's full access. FlyCommerce serves only what the app declares, from its own host, after reviewing the version; the merchant grants `storefront.scripts` at install and can switch scripts off; FlyCommerce can suspend them. They never run on the builder or previews, the customer account (`/customers/*`), checkout, payment and order pages, sign-in and account pages (login, register, forgot and reset password, OTP verification, `/private`), or the dashboard (`/admin`, `/dashboard`, `/vendor`). Navigating into those pages reloads the page so no app script carries over; don't promise more than that, and never try to reach them.
+- Read the store's context from `window.FlyCommerce` (`store`, `locale`, `currency`, `pageType`) and follow client-side navigation with the `flycommerce:page` event (`detail: { pageType, path }`). `pageType` in the global is the page the script loaded on; after that, only the event is current. Type both with `import type {} from '@flycommerce/app-bridge/storefront'`. Spec: https://github.com/getdokan/flycommerce-sdk/blob/main/spec/storefront-scripts.md.
+- There's no customer data: no shopper ID, name, email, cart or token. Never read the store's storage, cookies or tokens to get it, and never send the page's data to the app's server beyond what the feature needs.
+- Scripts load `async`, in no guaranteed order. Make each one self-contained; never depend on another script, or the page's code, having loaded first.
+- Keep the script small and self-contained: one root element of the app's own, prefixed names, no changes to the store's elements, styles or globals, no thrown errors. Ask for consent before tracking; stores have no consent banner yet.
+- Test locally with `@flycommerce/app-emulator`: pass the scripts to `ExampleDashboard.start({ scripts })` and open `/store`.
+
 ### Session tokens
 - Verify on the server before reading any claim: `alg` is RS256 (refuse anything else, including `none`); the signature verifies with the matching `kid` from `https://app.flycommerce.com/.well-known/jwks.json` (cache an hour, refetch at most every 30 seconds on an unknown `kid`); `exp` and `nbf` hold with a few seconds of leeway; `typ` is `session`; `aud` is the app ID; `iss` is `https://app.flycommerce.com`.
 - On any failure answer `401` with no detail.
@@ -76,6 +86,7 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 - Never log tokens, secrets, codes, query strings or customer data.
 
 ### app-config.json
+- `storefront` is optional and takes only `scripts` (see above).
 - Pages: at most 20, at most one level of `children`; `label` up to 40 characters; `slug` of letters, numbers, `-` and `_`; `path` starting with `/` with no spaces, `?` or `#`.
 - `appUrl` is `https` (plain `http` only for `localhost` and `.test`). `appId`, `versionId` and `version` match the changelog entry the developer created in the portal's **Versions** tab first.
 
