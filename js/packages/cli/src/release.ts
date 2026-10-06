@@ -36,26 +36,12 @@ export async function release(ctx: Context, portal: string, options: ReleaseOpti
   const api = PortalApi.signedIn(portal, ctx);
   const appPath = `apps/${encodeURIComponent(file.appId)}`;
   const app = await api.get<AppDetails>(appPath);
-  const existing = app.versions.find((candidate) => candidate.version === version);
-  let versionId: number;
 
-  if (existing?.releasedAt) {
+  if (app.versions.some((candidate) => candidate.version === version && candidate.releasedAt)) {
     throw new CliError(`${version} of ${app.name} is already released. Release a new version number.`);
   }
 
-  // A version left unreleased by --no-release or a failed release is picked up again, not duplicated.
-  if (existing) {
-    versionId = existing.versionId;
-    ctx.stdout(`Version ${version} (#${versionId}) already exists and isn't released; using it. Its changelog stays as written.`);
-  } else {
-    const created = await api.post<{ versionId: number; version: string }>(`${appPath}/versions`, {
-      version,
-      title: options.title?.trim() || version,
-      changelog: message,
-    });
-    versionId = created.versionId;
-    ctx.stdout(`Created version ${version} (#${versionId}) of ${app.name}.`);
-  }
+  const versionId = await createVersion(ctx, api, appPath, app, { version, message, title: options.title });
 
   if (options.noRelease) {
     ctx.stdout('Not released (--no-release). Run the same command without --no-release to release it.');
@@ -69,7 +55,7 @@ export async function release(ctx: Context, portal: string, options: ReleaseOpti
       config: { ...config, versionId, version },
     });
   } catch (error) {
-    if (error instanceof ApiError) {
+    if (error instanceof ApiError && error.code === 'invalid_config') {
       throw new ApiError(
         error.status,
         error.code,
@@ -80,26 +66,49 @@ export async function release(ctx: Context, portal: string, options: ReleaseOpti
     throw error;
   }
 
-  const waiting = (result.awaitingReview ?? []).map(describeReviewItem);
-
   ctx.stdout(`Released ${result.version} (#${result.versionId}) of ${app.name}.`);
 
-  if (waiting.length > 0) {
+  if (result.awaitingReview.length > 0) {
     ctx.stdout(
-      `Waiting for FlyCommerce's review; stores keep the approved ones until then:\n${waiting.map((item) => `  - ${item}`).join('\n')}`
+      `Waiting for FlyCommerce's review; stores keep the approved ones until then:\n${result.awaitingReview.map((item) => `  - ${item}`).join('\n')}`
     );
   } else {
     ctx.stdout('Everything in it is live.');
   }
 }
 
-function describeReviewItem(item: unknown): string {
-  if (typeof item === 'string') return item;
-  if (typeof item === 'object' && item !== null) {
-    const { label, handle, slug, name, kind, type } = item as Record<string, unknown>;
-    const what = [label, handle, slug, name].find((value) => typeof value === 'string');
-    const category = [kind, type].find((value) => typeof value === 'string');
-    if (what) return category ? `${category}: ${what}` : String(what);
+/** The new version's id; the hub holds one unreleased version at a time, so the same one waiting is picked up again. */
+async function createVersion(
+  ctx: Context,
+  api: PortalApi,
+  appPath: string,
+  app: AppDetails,
+  options: { version: string; message: string; title?: string }
+): Promise<number> {
+  try {
+    const created = await api.post<{ versionId: number; version: string }>(`${appPath}/versions`, {
+      version: options.version,
+      title: options.title?.trim() || options.version,
+      changelog: options.message,
+    });
+    ctx.stdout(`Created version ${options.version} (#${created.versionId}) of ${app.name}.`);
+    return created.versionId;
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== 'version_waiting') throw error;
+
+    const { versionId, version } = error.details as { versionId?: number; version?: string };
+
+    if (version === options.version && typeof versionId === 'number') {
+      ctx.stdout(`Version ${version} (#${versionId}) already exists and isn't released; using it. Its changelog stays as written.`);
+      return versionId;
+    }
+
+    throw new CliError(
+      `Version ${version} (#${versionId}) of ${app.name} is waiting to be released, so ${options.version} can't be created yet.`,
+      [
+        `Release it: flycommerce app release --version ${version} --message "…"`,
+        "Or delete it in the developer portal's Versions tab, then run this again.",
+      ]
+    );
   }
-  return JSON.stringify(item);
 }

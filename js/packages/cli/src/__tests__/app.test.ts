@@ -42,8 +42,8 @@ describe('flycommerce app', () => {
     const result = await cli('app', 'list');
 
     assert.equal(result.code, 0, result.stderr);
-    assert.match(result.stdout, /order-export\s+Order Export\s+published\s+published/);
-    assert.match(result.stdout, /order-export-dev\s+Order Export \(dev\)\s+draft\s+private/);
+    assert.match(result.stdout, /order-export\s+Order Export\s+published/);
+    assert.match(result.stdout, /order-export-dev\s+Order Export \(dev\)\s+unpublished/);
   });
 
   it('links a new app-config.dev.json as a copy of app-config.json with the dev app, and updates appId in place', async () => {
@@ -83,7 +83,7 @@ describe('flycommerce app', () => {
     fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(production));
     portal.releaseAnswer = {
       status: 200,
-      body: { versionId: 1, version: '1.2.0', released: true, awaitingReview: [{ kind: 'script', handle: 'welcome' }] },
+      body: { versionId: 1, version: '1.2.0', released: true, awaitingReview: ['export', 'welcome'] },
     };
 
     const result = await cli('app', 'release', '--version', '1.2.0', '--message', 'Adds a welcome banner');
@@ -98,7 +98,7 @@ describe('flycommerce app', () => {
     assert.deepEqual(portal.apiCalls()[1].body, { version: '1.2.0', title: '1.2.0', changelog: 'Adds a welcome banner' });
     assert.deepEqual(portal.apiCalls()[2].body.config, { ...production, versionId: 1, version: '1.2.0' });
     assert.match(result.stdout, /Released 1\.2\.0 \(#1\) of Order Export/);
-    assert.match(result.stdout, /Waiting for FlyCommerce's review[^]*- script: welcome/);
+    assert.match(result.stdout, /Waiting for FlyCommerce's review[^]*  - export\n  - welcome/);
   });
 
   it("prints the hub's problems and exits 1 when the release is refused", async () => {
@@ -130,13 +130,26 @@ describe('flycommerce app', () => {
 
     const released = await cli('app', 'release', '--version', '1.2.0', '--message', 'x');
     assert.equal(released.code, 0, released.stderr);
-    assert.equal(portal.apiCalls().filter((call) => call.method === 'POST' && call.path.endsWith('/versions')).length, 1);
     assert.match(released.stdout, /already exists and isn't released; using it/);
+    assert.equal(portal.apiCalls().at(-1)?.path, '/api/cli/v1/apps/order-export/versions/1/release');
+    assert.equal(portal.apps.get('order-export')!.versions.length, 1);
     assert.match(released.stdout, /Everything in it is live/);
 
     const versions = await cli('app', 'versions');
     assert.match(versions.stdout, /1\.2\.0\s+#1\s+live/);
     assert.match((await cli('app', 'release', '--version', '1.2.0', '--message', 'x')).stderr, /already released/);
+  });
+
+  it('refuses to create a version while another is waiting to be released', async () => {
+    fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(production));
+    portal.apps.get('order-export')!.versions.push({ versionId: 1, version: '1.2.0', title: '1.2.0', releasedAt: null });
+
+    const result = await cli('app', 'release', '--version', '1.3.0', '--message', 'x');
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /Version 1\.2\.0 \(#1\) of Order Export is waiting to be released, so 1\.3\.0 can't be created yet/);
+    assert.match(result.stderr, /- Release it: flycommerce app release --version 1\.2\.0/);
+    assert.ok(!portal.apiCalls().some((call) => call.path.endsWith('/release')));
   });
 
   it('checks the config locally before calling the portal', async () => {

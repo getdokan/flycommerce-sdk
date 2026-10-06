@@ -1,8 +1,10 @@
 /** The developer API's answers. */
+export type AppStatus = 'unpublished' | 'published' | 'pending' | 'rejected';
+
 export interface AppSummary {
   appId: string;
   name: string;
-  status: string;
+  status: AppStatus;
   published: boolean;
 }
 
@@ -16,15 +18,15 @@ export interface AppVersionSummary {
 export interface AppDetails {
   appId: string;
   name: string;
-  status: string;
+  status: AppStatus;
   redirectUrl: string | null;
   versions: AppVersionSummary[];
 }
 
 export interface DevConfigResult {
   appUrl: string;
-  pages: { label?: string; slug?: string; url?: string; path?: string; children?: DevConfigResult['pages'] }[];
-  scripts: { handle?: string; src?: string; load?: string }[];
+  pages: { label: string; slug: string; url: string; children?: DevConfigResult['pages'] }[];
+  scripts: { handle: string; src: string; load: string }[];
   installUrl: string;
 }
 
@@ -32,5 +34,6 @@ export interface ReleaseResult {
   versionId: number;
   version: string;
   released: boolean;
-  awaitingReview?: unknown[];
+  /** Page slugs, then script handles. */
+  awaitingReview: string[];
 }

@@ -19,12 +19,7 @@ export async function listApps(ctx: Context, portal: string): Promise<void> {
     return;
   }
 
-  ctx.stdout(
-    table([
-      ['APP ID', 'NAME', 'STATUS', 'LISTED'],
-      ...apps.map((app) => [app.appId, app.name, app.status, app.published ? 'published' : 'private']),
-    ])
-  );
+  ctx.stdout(table([['APP ID', 'NAME', 'STATUS'], ...apps.map((app) => [app.appId, app.name, app.status])]));
 }
 
 export async function link(ctx: Context, portal: string, options: { config?: string; app?: string }): Promise<void> {
@@ -35,7 +30,9 @@ export async function link(ctx: Context, portal: string, options: { config?: str
     throw new CliError(`You have no apps yet. Create one in the developer portal, ${portal}, then run: ${linkHint(options.config)}`);
   }
 
-  const listing = apps.map((app, index) => `  ${index + 1}. ${app.name} (${app.appId})${app.published ? ', published' : ''}`);
+  const listing = apps.map(
+    (app, index) => `  ${index + 1}. ${app.name} (${app.appId})${app.status === 'unpublished' ? '' : `, ${app.status}`}`
+  );
   let chosen: AppSummary | undefined;
 
   if (options.app !== undefined) {
@@ -53,8 +50,8 @@ export async function link(ctx: Context, portal: string, options: { config?: str
   const { created } = writeAppId(ctx, options.config, chosen.appId);
   ctx.stdout(`${created ? 'Created' : 'Updated'} ${fileName}: appId is ${chosen.appId} (${chosen.name}).`);
 
-  if (options.config !== undefined && chosen.published) {
-    ctx.stdout(`${chosen.name} is published, so app dev won't push to it. Link an unpublished development app for local work.`);
+  if (options.config !== undefined && chosen.status !== 'unpublished') {
+    ctx.stdout(`${chosen.name} is ${chosen.status}, so app dev won't push to it. Link an unpublished development app for local work.`);
   }
 }
 

@@ -36,7 +36,8 @@ export class ApiError extends CliError {
     readonly status: number,
     readonly code: string | undefined,
     message: string,
-    problems: string[] = []
+    problems: string[] = [],
+    readonly details: Record<string, unknown> = {}
   ) {
     super(message, problems);
     this.name = 'ApiError';
@@ -144,7 +145,7 @@ export class PortalApi {
   }
 
   private error(status: number, data: unknown): ApiError {
-    const body = (typeof data === 'object' && data !== null ? data : {}) as { error?: unknown; message?: unknown; problems?: unknown };
+    const body = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
     const code = typeof body.error === 'string' ? body.error : undefined;
     const problems = Array.isArray(body.problems) ? body.problems.map(problemText) : [];
     let message = typeof body.message === 'string' && body.message !== '' ? body.message : `The portal answered ${status}.`;
@@ -156,7 +157,7 @@ export class PortalApi {
           : `Your sign-in to ${this.portal} was refused: it has expired or was revoked. Run: flycommerce login`;
     }
 
-    return new ApiError(status, code, message, problems);
+    return new ApiError(status, code, message, problems, body);
   }
 }
 

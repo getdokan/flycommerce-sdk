@@ -66,9 +66,7 @@ export async function dev(ctx: Context, portal: string, options: DevOptions): Pr
       result = await api.put<DevConfigResult>(`apps/${encodeURIComponent(file.appId)}/dev-config`, { config: pushed });
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
-        throw new CliError(
-          `${file.appId} is published, so app dev won't change it: merchants' stores run it. Use a development app: flycommerce app link --config dev`
-        );
+        throw new CliError(error.message, ['Use a development app: flycommerce app link --config dev']);
       }
       throw error;
     }
@@ -112,11 +110,11 @@ function printSummary(ctx: Context, fileName: string, result: DevConfigResult, a
 
   if (pages.length > 0) {
     lines.push('', "Dashboard pages (open them from Apps in your store's dashboard):");
-    lines.push(...pages.map((page) => `  ${page.label ?? page.slug ?? ''}  ${page.url ?? page.path ?? ''}`));
+    lines.push(...pages.map((page) => `  ${page.label}  ${page.url}`));
   }
   if ((result.scripts ?? []).length > 0) {
     lines.push('', "Storefront scripts (they run on your store's catalogue pages once installed):");
-    lines.push(...result.scripts.map((script) => `  ${script.handle ?? ''}  ${script.src ?? ''}`));
+    lines.push(...result.scripts.map((script) => `  ${script.handle}  ${script.src}`));
   }
 
   lines.push('', `Running ${command.join(' ')} with APP_URL, REDIRECT_URI and PORT=${port}. Ctrl+C stops it and the tunnel.`, '');

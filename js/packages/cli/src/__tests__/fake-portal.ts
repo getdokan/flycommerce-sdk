@@ -6,7 +6,7 @@ import { Context, run } from '../main.js';
 export interface FakeApp {
   appId: string;
   name: string;
-  status: string;
+  status: 'unpublished' | 'published' | 'pending' | 'rejected';
   published: boolean;
   redirectUrl: string | null;
   versions: { versionId: number; version: string; title: string; releasedAt: string | null }[];
@@ -27,6 +27,8 @@ export class FakePortal {
   authorizeQuery?: URLSearchParams;
   /** Sent back to the loopback instead of the state the CLI sent. */
   forgedState?: string;
+  /** Sent back instead of a code: access_denied when the developer cancels, invalid_request for a bad link. */
+  authorizeError?: string;
   releaseAnswer?: { status: number; body: unknown };
   /** Answers every API call with a redirect here, as a misconfigured host or a sign-in page would. */
   redirectTo?: string;
@@ -52,7 +54,7 @@ export class FakePortal {
   }
 
   addApp(app: Partial<FakeApp> & { appId: string }): FakeApp {
-    const full: FakeApp = { name: app.appId, status: 'draft', published: false, redirectUrl: null, versions: [], ...app };
+    const full: FakeApp = { name: app.appId, status: 'unpublished', published: false, redirectUrl: null, versions: [], ...app };
     this.apps.set(app.appId, full);
     return full;
   }
@@ -77,7 +79,8 @@ export class FakePortal {
       this.authorizeQuery = url.searchParams;
       this.issuedCode = 'one-time-code';
       const back = new URL(url.searchParams.get('redirect_uri')!);
-      back.searchParams.set('code', this.issuedCode);
+      if (this.authorizeError) back.searchParams.set('error', this.authorizeError);
+      else back.searchParams.set('code', this.issuedCode);
       back.searchParams.set('state', this.forgedState ?? url.searchParams.get('state')!);
       return send(302, undefined, { Location: back.toString() });
     }
@@ -92,7 +95,10 @@ export class FakePortal {
       this.issuedCode = undefined;
       return ok
         ? send(200, { token: this.token, expiresAt: new Date(Date.now() + 90 * 86400_000).toISOString() })
-        : send(400, { error: 'invalid_grant', message: 'The code is not valid.' });
+        : send(400, {
+            error: 'invalid_grant',
+            message: 'This sign-in code is unknown, expired, already used or for another sign-in. Run flycommerce login again.',
+          });
     }
 
     if (!url.pathname.startsWith('/api/cli/v1/')) return send(404, { error: 'not_found', message: 'Not found.' });
@@ -111,14 +117,25 @@ export class FakePortal {
     }
 
     const app = parts[0] === 'apps' ? this.apps.get(parts[1]) : undefined;
-    if (!app) return send(404, { error: 'not_found', message: 'No such app.' });
+    if (!app) return send(404, { error: 'app_not_found', message: `There's no app ${parts[1]} on your account.` });
 
-    if (req.method === 'GET' && parts.length === 2)
-      return send(200, { appId: app.appId, name: app.name, status: app.status, redirectUrl: app.redirectUrl, versions: app.versions });
+    if (req.method === 'GET' && parts.length === 2) {
+      const versions = [...app.versions].sort((a, b) => b.versionId - a.versionId);
+      return send(200, { appId: app.appId, name: app.name, status: app.status, redirectUrl: app.redirectUrl, versions });
+    }
 
     if (req.method === 'POST' && parts.length === 3 && parts[2] === 'versions') {
+      const waiting = app.versions.find((version) => version.releasedAt === null);
+      if (waiting) {
+        return send(409, {
+          error: 'version_waiting',
+          message: `Version ${waiting.versionId} (${waiting.version}) is waiting for its app-config.json. Release or delete it first.`,
+          versionId: waiting.versionId,
+          version: waiting.version,
+        });
+      }
       if (app.versions.some((version) => version.version === body.version)) {
-        return send(422, { error: 'invalid', message: 'That version exists.', problems: ['version: taken'] });
+        return send(422, { error: 'invalid_request', message: 'The version is not valid.', problems: ['version: 1.2.0 is taken.'] });
       }
       const versionId = app.versions.length + 1;
       app.versions.push({ versionId, version: body.version, title: body.title, releasedAt: null });
@@ -126,16 +143,27 @@ export class FakePortal {
     }
 
     if (req.method === 'POST' && parts.length === 5 && parts[2] === 'versions' && parts[4] === 'release') {
+      const version = app.versions.find((candidate) => candidate.versionId === Number(parts[3]));
+      if (!version) return send(404, { error: 'version_not_found', message: `${app.name} has no version ${parts[3]}.` });
+      if (version.releasedAt) {
+        return send(409, { error: 'version_released', message: `Version ${version.version} is released and can no longer change.` });
+      }
       if (this.releaseAnswer) return send(this.releaseAnswer.status, this.releaseAnswer.body);
-      const version = app.versions.find((candidate) => candidate.versionId === Number(parts[3]))!;
       version.releasedAt = new Date().toISOString();
       return send(200, { versionId: version.versionId, version: version.version, released: true, awaitingReview: [] });
     }
 
     if (req.method === 'PUT' && parts.length === 3 && parts[2] === 'dev-config') {
-      if (app.published) return send(409, { error: 'app_published', message: 'A published app takes changes only through a release.' });
+      if (app.status !== 'unpublished') {
+        const why = { published: 'is published', pending: 'is waiting for review', rejected: 'was rejected' }[app.status];
+        return send(409, {
+          error: 'app_published',
+          message: `${app.name} ${why}, so it only changes by releasing a version. Use a development app for app dev.`,
+        });
+      }
       const config = body.config;
       const base = String(config.appUrl).replace(/\/+$/, '');
+      const onAppUrl = (value: string) => (value.startsWith('/') ? base + value : value);
       return send(200, {
         appUrl: base,
         pages: config.dashboard.pages.map((page: { label: string; slug: string; path: string }) => ({
@@ -143,9 +171,10 @@ export class FakePortal {
           slug: page.slug,
           url: base + page.path,
         })),
-        scripts: (config.storefront?.scripts ?? []).map((script: { handle: string; src: string }) => ({
+        scripts: (config.storefront?.scripts ?? []).map((script: { handle: string; src: string; load?: string }) => ({
           handle: script.handle,
-          src: script.src.startsWith('/') ? base + script.src : script.src,
+          src: onAppUrl(script.src),
+          load: script.load ?? 'idle',
         })),
         installUrl: `${this.url}/apps/${app.appId}/install`,
       });

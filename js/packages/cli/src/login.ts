@@ -87,9 +87,15 @@ function startLoopback(state: string, timeoutMs: number, signal?: AbortSignal): 
     const returned = url.searchParams.get('state') ?? '';
     const received = url.searchParams.get('code');
 
-    if (error) {
+    if (error === 'access_denied') {
       reply(200, 'Sign-in cancelled', 'Nothing was saved. You can close this tab.');
       return finish(new CliError('Sign-in was cancelled in the browser. Nothing was saved.'));
+    }
+    if (error) {
+      reply(200, 'Sign-in failed', 'The portal refused this sign-in request. Nothing was saved.');
+      return finish(
+        new CliError(`The portal refused the sign-in request (${error.slice(0, 40)}). Nothing was saved. Run flycommerce login again.`)
+      );
     }
     if (!sameState(returned, state)) {
       reply(400, 'Sign-in refused', "This answer doesn't belong to the sign-in this terminal started. Nothing was saved.");

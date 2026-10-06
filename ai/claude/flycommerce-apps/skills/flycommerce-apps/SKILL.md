@@ -98,7 +98,7 @@ The FlyCommerce plugins cover only the platform. For the rest, use what's availa
 - `@flycommerce/cli` (`npx flycommerce`) does the portal bookkeeping. Prefer it to describing portal clicks. Guide: https://github.com/getdokan/flycommerce-sdk/tree/main/js/packages/cli.
 - One app per environment: the production app merchants install, and an unpublished development app installed only on the developer's own stores. `flycommerce app link --config dev` writes the development app's ID into `app-config.dev.json`.
 - `flycommerce app dev --config dev -- <server command>` opens a tunnel (Cloudflare's `cloudflared`, or `--tunnel-url`), pushes the config to the development app with `appUrl` set to the tunnel, and runs the server with `APP_URL`, `REDIRECT_URI`, `PORT` and `APP_CONFIG_FILE` set. The server reads those rather than hard-coding a host or port, and loads the config from `APP_CONFIG_FILE` when it's set. The development app's ID and secret go in the developer's `.env`, never in the repo.
-- `app dev` refuses a published app. Never work around that by pointing the production app at a tunnel: merchants' stores would load it.
+- `app dev` refuses an app that's published, waiting for review or rejected. Never work around that by pointing the production app at a tunnel: merchants' stores would load it.
 - `flycommerce app release --version 1.2.0 --message "…"` checks the config, creates the version and releases it; a listed app's new pages, permissions and scripts wait for review. In CI it reads a per-app deploy token from `FLYCOMMERCE_TOKEN`.
 - `flycommerce login` signs in through the browser. Never ask the developer for their token, and never print, log or commit one.
 

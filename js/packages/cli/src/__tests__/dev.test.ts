@@ -100,20 +100,26 @@ describe('flycommerce app dev', () => {
     assert.equal(portal.apiCalls().find((call) => call.method === 'PUT')!.body.config.appUrl, 'https://t.example.dev');
   });
 
-  it('refuses a published app and runs nothing', async () => {
-    const out = path.join(dir, 'env.json');
-    fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify({ ...devConfig, appId: 'order-export' }));
+  for (const status of ['published', 'pending'] as const) {
+    it(`refuses a ${status} app and runs nothing`, async () => {
+      const out = path.join(dir, 'env.json');
+      portal.apps.get('order-export')!.status = status;
+      fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify({ ...devConfig, appId: 'order-export' }));
 
-    const result = await runCli(['app', 'dev', '--tunnel-url', 'https://t.example.dev', '--portal', portal.url, '--', ...recordEnv(out)], {
-      env,
-      cwd: dir,
+      const result = await runCli(
+        ['app', 'dev', '--tunnel-url', 'https://t.example.dev', '--portal', portal.url, '--', ...recordEnv(out)],
+        {
+          env,
+          cwd: dir,
+        }
+      );
+
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /Error: Order Export (is published|is waiting for review), so it only changes by releasing a version/);
+      assert.match(result.stderr, /- Use a development app: flycommerce app link --config dev/);
+      assert.ok(!fs.existsSync(out));
     });
-
-    assert.equal(result.code, 1);
-    assert.match(result.stderr, /order-export is published/);
-    assert.match(result.stderr, /Use a development app: flycommerce app link --config dev/);
-    assert.ok(!fs.existsSync(out));
-  });
+  }
 
   it('stops the server on Ctrl+C', { timeout: 10_000 }, async () => {
     const out = path.join(dir, 'env.json');

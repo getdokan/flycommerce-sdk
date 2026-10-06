@@ -75,7 +75,7 @@ flycommerce app dev --config dev -- npm run dev:server
 
 The tunnel URL changes on every run, so `app dev` pushes on every start. The development app keeps its App ID, secret and your stores' installs across runs; reinstall only when its permissions change. Add `"install": { "redirectUrl": "/auth/callback" }` to the config so installs come back through the current tunnel.
 
-`app dev` refuses a published app: merchants' stores run it, and changes reach them only through a release.
+`app dev` refuses an app that's published, waiting for review or rejected: it changes only by releasing a version.
 
 **Tunnels.** With no `--tunnel-url`, [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) must be installed; the CLI never downloads it. Any other tunnel works with `--tunnel-url https://…`: ngrok, a named Cloudflare tunnel, and so on.
 
@@ -85,7 +85,7 @@ The tunnel URL changes on every run, so `app dev` pushes on every start. The dev
 flycommerce app release --version 1.2.0 --message "Adds a welcome banner on the home page"
 ```
 
-The CLI checks `app-config.json` locally, creates the version with its changelog, and releases it with the config, filling in `versionId` and `version`. A listed app's new pages, permissions and scripts wait for FlyCommerce's review, and the CLI lists them. With `--no-release` it stops after creating the version; running the command again without it releases that same version. If FlyCommerce refuses the config, the CLI prints each problem and exits with `1`.
+The CLI checks `app-config.json` locally, creates the version with its changelog, and releases it with the config, filling in `versionId` and `version`. A listed app's new pages, permissions and scripts wait for FlyCommerce's review, and the CLI lists them. With `--no-release` it stops after creating the version; running the command again without it releases that same version. FlyCommerce keeps one unreleased version at a time, so while another is waiting the CLI says so and asks you to release or delete it first. If FlyCommerce refuses the config, the CLI prints each problem and exits with `1`.
 
 ## CI
 

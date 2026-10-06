@@ -70,6 +70,25 @@ describe('flycommerce login', () => {
     }
   });
 
+  it('says whether the developer cancelled or the portal refused the request, and saves nothing', async () => {
+    const dir = home();
+
+    try {
+      portal.authorizeError = 'access_denied';
+      const cancelled = await runCli(['login', '--portal', portal.url], { env: { XDG_CONFIG_HOME: dir }, cwd: dir, openUrl: browser });
+      assert.equal(cancelled.code, 1);
+      assert.match(cancelled.stderr, /cancelled in the browser/);
+
+      portal.authorizeError = 'invalid_request';
+      const refused = await runCli(['login', '--portal', portal.url], { env: { XDG_CONFIG_HOME: dir }, cwd: dir, openUrl: browser });
+      assert.equal(refused.code, 1);
+      assert.match(refused.stderr, /refused the sign-in request \(invalid_request\)/);
+      assert.ok(!fs.existsSync(credentialsPath({ XDG_CONFIG_HOME: dir })));
+    } finally {
+      portal.authorizeError = undefined;
+    }
+  });
+
   it('gives up when nobody answers in time', async () => {
     const dir = home();
     const result = await runCli(['login', '--portal', portal.url], { env: { XDG_CONFIG_HOME: dir }, cwd: dir, loginTimeoutMs: 50 });
