@@ -241,12 +241,15 @@ export function hostPage(config: HostPageConfig): string {
   const option = (value: string, selected: string, label = value) =>
     `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
 
-  const links = config.pages
-    .map(
-      (page) =>
-        `<a href="/apps/${escapeHtml(page.slug)}?role=${escapeHtml(config.role)}"${page.slug === config.slug ? ' aria-current="page"' : ''}>${escapeHtml(page.label)}</a>`
-    )
-    .join('');
+  const link = (page: { slug: string }, label: string) =>
+    `<a href="/apps/${escapeHtml(page.slug)}?role=${escapeHtml(config.role)}"${page.slug === config.slug ? ' aria-current="page"' : ''}>${escapeHtml(label)}</a>`;
+
+  // As the dashboard: one page is the app's own menu item; only several get the app name above them.
+  const menu =
+    config.pages.length === 1
+      ? link(config.pages[0], config.appName)
+      : `<div style="font-weight:600;padding:6px 10px">${escapeHtml(config.appName)}</div>` +
+        config.pages.map((page) => link(page, page.label)).join('');
 
   // </script> inside JSON would end the tag early.
   const json = JSON.stringify(config).replace(/</g, '\\u003c');
@@ -259,8 +262,7 @@ export function hostPage(config: HostPageConfig): string {
   <strong>Example dashboard</strong>
   <div style="color:var(--muted);font-size:12px">${escapeHtml(config.store)}</div>
   <h2>Apps</h2>
-  <div style="font-weight:600;padding:6px 10px">${escapeHtml(config.appName)}</div>
-  ${links}
+  ${menu}
 </nav>
 <main>
   <div class="fake-bar">
