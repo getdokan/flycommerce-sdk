@@ -1,7 +1,7 @@
 {
   "name": "@flycommerce/app-bridge",
   "description": "Run a FlyCommerce app inside the merchant dashboard: session tokens, navigation, title bar, dialogs and dashboard context. Includes React hooks and a server-side session token verifier.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "author": "FlyCommerce",
   "bugs": {
