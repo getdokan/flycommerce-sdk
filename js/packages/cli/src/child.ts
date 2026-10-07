@@ -37,7 +37,9 @@ export function isWindowsBatch(program: string, env: NodeJS.ProcessEnv, cwd: str
 
   for (const dir of dirs) {
     for (const ext of extensions) {
-      if (fs.existsSync(path.resolve(cwd, dir, program + ext))) {
+      // PATHEXT is upper case; only case-insensitive file systems would match it as written.
+      const candidates = [program + ext, program + ext.toLowerCase()];
+      if (candidates.some((name) => fs.existsSync(path.resolve(cwd, dir, name)))) {
         return ['.cmd', '.bat'].includes(ext.toLowerCase());
       }
     }
