@@ -4,6 +4,13 @@ import { FakeHub } from './hub.js';
 import { RunningServer, escapeHtml, sendHtml, sendJson, serve } from './net.js';
 import { StorefrontScriptConfig, storefrontPage } from './storefront-page.js';
 
+/** appUrl without trailing slashes; a loop, since a regex here is slow on many slashes. */
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
 export type { HostPageEntry, StorefrontScriptConfig };
 
 export interface ExampleDashboardOptions {
@@ -54,7 +61,7 @@ export class ExampleDashboard {
     const { options } = this;
     const role = ROLES.includes(url.searchParams.get('role') ?? '') ? url.searchParams.get('role')! : 'owner';
 
-    const base = options.appUrl.replace(/\/+$/, '');
+    const base = withoutTrailingSlashes(options.appUrl);
     // As FlyCommerce does with a path src: appended to appUrl.
     const scripts = (options.scripts ?? []).map((script) =>
       script.src.startsWith('/') && !script.src.startsWith('//') ? { ...script, src: base + script.src } : script

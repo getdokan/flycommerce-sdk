@@ -6,6 +6,7 @@ import { CliError, Context } from './context.js';
 import { ApiError, PortalApi, printable } from './portal.js';
 import { Tunnel, startCloudflared } from './tunnel.js';
 import { DevConfigResult } from './types.js';
+import { withoutTrailingSlashes } from './url.js';
 
 export const DEFAULT_PORT = 4000;
 export const DEFAULT_COMMAND = ['npm', 'start'];
@@ -40,7 +41,7 @@ export async function dev(ctx: Context, portal: string, options: DevOptions): Pr
   let appUrl: string;
 
   if (options.tunnelUrl !== undefined) {
-    appUrl = options.tunnelUrl.replace(/\/+$/, '');
+    appUrl = withoutTrailingSlashes(options.tunnelUrl);
   } else {
     ctx.stdout(`Starting a Cloudflare quick tunnel to http://localhost:${port}…`);
     tunnel = await startCloudflared(ctx, port);

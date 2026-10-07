@@ -24,10 +24,23 @@ export function linkHint(name: string | undefined): string {
 }
 
 export function readJsonObject(file: string): Record<string, unknown> {
+  return parseJsonObject(file, fs.readFileSync(file, 'utf8'));
+}
+
+function readIfPresent(file: string): string | undefined {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+function parseJsonObject(file: string, text: string): Record<string, unknown> {
   let value: unknown;
 
   try {
-    value = JSON.parse(fs.readFileSync(file, 'utf8'));
+    value = JSON.parse(text);
   } catch (error) {
     throw new CliError(`${path.basename(file)} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -43,11 +56,12 @@ export function readConfigFile(ctx: Context, name: string | undefined): ConfigFi
   const fileName = configFileName(name);
   const file = path.join(ctx.cwd, fileName);
 
-  if (!fs.existsSync(file)) {
+  const text = readIfPresent(file);
+  if (text === undefined) {
     throw new CliError(`There's no ${fileName} here. Run: ${linkHint(name)}`);
   }
 
-  const config = readJsonObject(file);
+  const config = parseJsonObject(file, text);
 
   if (typeof config.appId !== 'string' || config.appId === '') {
     throw new CliError(`${fileName} has no appId. Run: ${linkHint(name)}`);
@@ -68,9 +82,9 @@ export function writeAppId(ctx: Context, name: string | undefined, appId: string
   const fileName = configFileName(name);
   const file = path.join(ctx.cwd, fileName);
 
-  if (fs.existsSync(file)) {
-    const text = fs.readFileSync(file, 'utf8');
-    const config = readJsonObject(file);
+  const text = readIfPresent(file);
+  if (text !== undefined) {
+    const config = parseJsonObject(file, text);
     const field = /("appId"\s*:\s*)"(?:[^"\\]|\\.)*"/g;
     const matches = text.match(field) ?? [];
     const updated =
@@ -85,11 +99,13 @@ export function writeAppId(ctx: Context, name: string | undefined, appId: string
   const production = path.join(ctx.cwd, 'app-config.json');
   let contents: Record<string, unknown> = TEMPLATE(appId);
 
-  if (name !== undefined && fs.existsSync(production)) {
-    const { versionId, version, ...rest } = readJsonObject(production);
+  const productionText = name !== undefined ? readIfPresent(production) : undefined;
+  if (productionText !== undefined) {
+    const { versionId, version, ...rest } = parseJsonObject(production, productionText);
     contents = { ...rest, appId };
   }
 
-  fs.writeFileSync(file, JSON.stringify(contents, null, 2) + '\n');
+  // wx: never overwrite a file that appeared since we looked.
+  fs.writeFileSync(file, JSON.stringify(contents, null, 2) + '\n', { flag: 'wx' });
   return { fileName, created: true };
 }

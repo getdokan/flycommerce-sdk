@@ -1,5 +1,12 @@
 import { escapeHtml } from './net.js';
 
+/** appUrl without trailing slashes; a loop, since a regex here is slow on many slashes. */
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
 /** A dashboard page from app-config.json. Without a path, it is served at /<slug>. */
 export interface HostPageEntry {
   label: string;
@@ -262,7 +269,7 @@ export function hostPage(config: HostPageConfig): string {
 
   // As the dashboard: appUrl + the page's path.
   const current = config.pages.find((page) => page.slug === config.slug);
-  const frameUrl = config.appUrl.replace(/\/+$/, '') + (current?.path ?? `/${config.slug}`);
+  const frameUrl = withoutTrailingSlashes(config.appUrl) + (current?.path ?? `/${config.slug}`);
   // </script> inside JSON would end the tag early.
   const json = JSON.stringify({ ...config, frameUrl }).replace(/</g, '\\u003c');
 

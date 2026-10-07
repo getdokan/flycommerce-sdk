@@ -46,8 +46,10 @@ describe('flycommerce login', () => {
 
     const file = credentialsPath(env);
     assert.equal(file, path.join(dir, 'flycommerce', 'credentials.json'));
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).portals[portal.url].token, 'flyc_production_token');
+    const fd = fs.openSync(file, 'r');
+    assert.equal(fs.fstatSync(fd).mode & 0o777, 0o600);
+    assert.equal(JSON.parse(fs.readFileSync(fd, 'utf8')).portals[portal.url].token, 'flyc_production_token');
+    fs.closeSync(fd);
     assert.match(result.stdout, /Signed in to .* as Dev Person <dev@example\.com>/);
     assert.match(result.stdout, /cli\/authorize\?redirect_uri=/, 'the link is printed for a headless terminal');
     assert.ok(!(result.stdout + result.stderr).includes('flyc_production_token'), 'the token is never printed');

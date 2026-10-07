@@ -1,6 +1,13 @@
 import fs from 'node:fs';
 import { CredentialStore, FileCredentialStore } from './credentials.js';
 
+/** appUrl without trailing slashes; a loop, since a regex here is slow on many slashes. */
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
 /** Where every region's session tokens are verified: the issuer they name and the keys that sign them. */
 export const FLYCOMMERCE_ORIGIN = 'https://app.flycommerce.com';
 
@@ -40,7 +47,7 @@ export function list(value: string | undefined, fallback: string[]): string[] {
 
 export function appServerConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AppServerConfig {
   const hubApiUrl = required(env, 'HUB_API_URL');
-  const appUrl = env.APP_URL ? env.APP_URL.replace(/\/+$/, '') : undefined;
+  const appUrl = env.APP_URL ? withoutTrailingSlashes(env.APP_URL) : undefined;
 
   if (!env.REDIRECT_URI && !appUrl) {
     throw new Error('REDIRECT_URI is required, or APP_URL to use APP_URL/auth/callback.');
@@ -58,6 +65,6 @@ export function appServerConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Ap
     frameAncestors: list(env.FRAME_ANCESTORS, ['https://*.flycommerce.com', 'https://*.flycom.shop']),
     credentials: new FileCredentialStore(env.CREDENTIALS_FILE ?? 'data/credentials.json'),
     // Local development only: every store's calls, tokens included, go to this one host.
-    storeUrl: env.STORE_BASE_URL ? () => env.STORE_BASE_URL!.replace(/\/+$/, '') : undefined,
+    storeUrl: env.STORE_BASE_URL ? () => withoutTrailingSlashes(env.STORE_BASE_URL!) : undefined,
   };
 }

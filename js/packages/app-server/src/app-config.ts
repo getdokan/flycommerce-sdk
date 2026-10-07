@@ -1,5 +1,12 @@
 import fs from 'node:fs';
 
+/** appUrl without trailing slashes; a loop, since a regex here is slow on many slashes. */
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
 export interface AppConfigPage {
   slug: string;
   label: string;
@@ -154,7 +161,7 @@ export function resolveAppConfig(config: AppConfig, options: { appUrl?: string }
 
 // A path is appended to appUrl, as FlyCommerce does with page paths.
 function resolveOnAppUrl(pathOrUrl: string, appUrl: string): string {
-  return isPath(pathOrUrl) ? appUrl.replace(/\/+$/, '') + pathOrUrl : pathOrUrl;
+  return isPath(pathOrUrl) ? withoutTrailingSlashes(appUrl) + pathOrUrl : pathOrUrl;
 }
 
 /** The request paths an app must serve its dashboard page on: every page and sub-page. */

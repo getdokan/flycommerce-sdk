@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { CliError, Context } from './context.js';
 import { readCredential } from './credentials.js';
 import { printable } from './printable.js';
+import { withoutTrailingSlashes } from './url.js';
 
 export { printable };
 
@@ -31,7 +32,7 @@ export function portalUrl(flag: string | undefined, env: NodeJS.ProcessEnv): str
     throw new CliError(`The portal URL must be a plain address, like ${DEFAULT_PORTAL}.`);
   }
 
-  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+  return `${url.origin}${withoutTrailingSlashes(url.pathname)}`;
 }
 
 export class ApiError extends CliError {
