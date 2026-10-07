@@ -1,5 +1,6 @@
 import { ParseArgsConfig, parseArgs } from 'node:util';
 import { link, listApps, versions, whoami } from './apps.js';
+import { LIMITS } from './changelog.js';
 import { CliError, Context } from './context.js';
 import { deleteCredential } from './credentials.js';
 import { DEFAULT_COMMAND, DEFAULT_PORT, dev } from './dev.js';
@@ -7,6 +8,7 @@ import { login } from './login.js';
 import { CLI_VERSION, DEFAULT_PORTAL, portalUrl } from './portal.js';
 import { printable } from './printable.js';
 import { release } from './release.js';
+import { submit } from './submit.js';
 
 export type { Context } from './context.js';
 
@@ -19,8 +21,9 @@ Commands:
   app list         List your apps
   app link         Write an app's ID into app-config.json or app-config.<name>.json
   app dev          Run a development app on your store, through a tunnel to this computer
-  app release      Check app-config.json, create the version and release it
+  app release      Work out the version and changelog from your commits, then release it
   app versions     List the app's versions and which one is live
+  app submit       Check the review checklist and submit the app for FlyCommerce's review
 
 Options:
   --portal <url>   The developer portal (default ${DEFAULT_PORTAL})
@@ -63,19 +66,46 @@ Only for an unpublished app: link a development app with flycommerce app link --
   --tunnel-url <url>  Your own tunnel's https URL (ngrok, a named Cloudflare tunnel, …);
                       without it, cloudflared must be installed
   -- <command>        Your server's command (default: ${DEFAULT_COMMAND.join(' ')})`,
-  'app release': `Usage: flycommerce app release --version <x.y.z> --message <text> [--title <text>] [--config <name>] [--no-release]
+  'app release': `Usage: flycommerce app release [--version <x.y.z>] [--message <text>] [--title <text>] [--tag <tag>]…
+                               [--config <name>] [--dry-run] [--edit] [--yes] [--no-release] [--no-git-tag]
 
 Checks app-config.json, creates the version with its changelog, and releases it with the config.
 A listed app's new pages, permissions and scripts wait for FlyCommerce's review.
 
-  --version <x.y.z>  The version number, like 1.2.0
-  --message <text>   What changed, for the changelog
-  --title <text>     The version's title (default: the version number)
-  --config <name>    Use app-config.<name>.json
-  --no-release       Create the version, but don't release it`,
+Without --version, the version comes from the Conventional Commits since the last release: a
+breaking change (type! or a BREAKING CHANGE: footer) bumps the major number (the minor one below
+1.0.0), a feat the minor one, anything else releasable (fix, perf, refactor, revert) the patch one.
+The last release is the highest <prefix><x.y.z> git tag in HEAD's history; without one, the
+version released last and the commits since its date. Only commits touching this directory count.
+The changelog groups them into breaking changes, features, fixes and other; the title is the
+first breaking change or feature, else the first fix; the tags are the commits' scopes.
+It shows all that and asks before releasing, then tags the commit: <prefix><version>, never pushed.
+
+  --version <x.y.z>     The version, instead of working it out (needed outside a git repository)
+  --message <text>      The changelog, instead of writing it from the commits
+  --title <text>        The version's title, up to ${LIMITS.title} characters
+  --tag <tag>           A tag, instead of the scopes; repeat for up to ${LIMITS.tags}
+  --config <name>       Use app-config.<name>.json
+  --tag-prefix <text>   Git tags look like <prefix><x.y.z> (default app-v, or app-<name>-v with --config)
+  --include-all         Count every commit, chores, docs, tests and CI included
+  --dry-run             Show the version and changelog, and stop: nothing is created
+  --edit                Edit the changelog in $EDITOR before releasing
+  -y, --yes             Don't ask; needed without a terminal unless --version and --message are both given
+  --no-release          Create the version, but don't release it
+  --no-git-tag          Don't create the git tag`,
   'app versions': `Usage: flycommerce app versions [--config <name>]
 
 The app's versions, newest first, and which one is live.`,
+  'app submit': `Usage: flycommerce app submit [--config <name>] [--notes <text>] [--yes]
+
+Shows the app's review checklist, what's done and what isn't with where to fix it, and when all
+of it is done, submits the app for FlyCommerce's review. Release a version first: the review
+covers what's released. A published app has nothing to submit: its changes go to review when
+they're released. Deploy tokens can release but not submit; sign in with flycommerce login.
+
+  --config <name>  Use app-config.<name>.json
+  --notes <text>   Notes for the reviewer, up to 5000 characters, like where to find a feature
+  -y, --yes        Don't ask; needed without a terminal`,
 };
 
 type Options = NonNullable<ParseArgsConfig['options']>;
@@ -95,9 +125,17 @@ const OPTIONS: Record<string, Options> = {
     version: { type: 'string' },
     message: { type: 'string', short: 'm' },
     title: { type: 'string' },
+    tag: { type: 'string', multiple: true },
+    'tag-prefix': { type: 'string' },
+    'include-all': { type: 'boolean' },
+    'dry-run': { type: 'boolean' },
+    edit: { type: 'boolean' },
+    yes: { type: 'boolean', short: 'y' },
     'no-release': { type: 'boolean' },
+    'no-git-tag': { type: 'boolean' },
   },
   'app versions': { ...CONFIG },
+  'app submit': { ...CONFIG, notes: { type: 'string' }, yes: { type: 'boolean', short: 'y' } },
 };
 
 /** Runs one command and returns the exit code. */
@@ -147,7 +185,7 @@ async function dispatch(argv: string[], ctx: Context): Promise<number> {
     throw new CliError(`Unknown command: ${name}. Run flycommerce --help for the commands.`);
   }
 
-  let values: Record<string, string | boolean | undefined>;
+  let values: Record<string, string | string[] | boolean | undefined>;
   let positionals: string[];
 
   try {
@@ -156,7 +194,7 @@ async function dispatch(argv: string[], ctx: Context): Promise<number> {
       options: { ...COMMON, ...OPTIONS[name] },
       allowPositionals: true,
       strict: true,
-    }) as { values: Record<string, string | boolean | undefined>; positionals: string[] });
+    }) as { values: Record<string, string | string[] | boolean | undefined>; positionals: string[] });
   } catch (error) {
     const option = /'([^']+)'/.exec((error as Error).message)?.[1];
     const problem =
@@ -179,6 +217,7 @@ async function dispatch(argv: string[], ctx: Context): Promise<number> {
 
   const portal = portalUrl(values.portal as string | undefined, ctx.env);
   const text = (key: string) => values[key] as string | undefined;
+  const flag = (key: string) => values[key] === true;
 
   switch (name) {
     case 'login':
@@ -208,11 +247,21 @@ async function dispatch(argv: string[], ctx: Context): Promise<number> {
         version: text('version'),
         message: text('message'),
         title: text('title'),
-        noRelease: values['no-release'] === true,
+        tags: values.tag as string[] | undefined,
+        tagPrefix: text('tag-prefix'),
+        includeAll: flag('include-all'),
+        dryRun: flag('dry-run'),
+        edit: flag('edit'),
+        yes: flag('yes'),
+        noRelease: flag('no-release'),
+        noGitTag: flag('no-git-tag'),
       });
       return 0;
     case 'app versions':
       await versions(ctx, portal, { config: text('config') });
+      return 0;
+    case 'app submit':
+      await submit(ctx, portal, { config: text('config'), notes: text('notes'), yes: flag('yes') });
       return 0;
   }
 

@@ -10,6 +10,8 @@ export interface FakeApp {
   published: boolean;
   redirectUrl: string | null;
   versions: { versionId: number; version: string; title: string; releasedAt: string | null }[];
+  checklist: { key: string; label: string; hint: string; done: boolean; fixUrl: string }[];
+  submittedAt: string | null;
 }
 
 export interface RecordedRequest {
@@ -30,6 +32,10 @@ export class FakePortal {
   /** Sent back instead of a code: access_denied when the developer cancels, invalid_request for a bad link. */
   authorizeError?: string;
   releaseAnswer?: { status: number; body: unknown };
+  submitAnswer?: { status: number; body: unknown };
+  checklistAnswer?: { status: number; body: unknown };
+  /** A per-app deploy token: it releases, but the hub refuses it a submission. */
+  deployToken = 'flyc_deploy_token_456';
   me = { name: 'Dev Person', email: 'dev@example.com' };
   /** What the dev push says about installs, as the hub decides from the permissions it adds. */
   devPushAnswer: { reinstallRequired: boolean; message?: string; redirectUrl?: string | null } = { reinstallRequired: false };
@@ -57,7 +63,16 @@ export class FakePortal {
   }
 
   addApp(app: Partial<FakeApp> & { appId: string }): FakeApp {
-    const full: FakeApp = { name: app.appId, status: 'unpublished', published: false, redirectUrl: null, versions: [], ...app };
+    const full: FakeApp = {
+      name: app.appId,
+      status: 'unpublished',
+      published: false,
+      redirectUrl: null,
+      versions: [],
+      checklist: [],
+      submittedAt: null,
+      ...app,
+    };
     this.apps.set(app.appId, full);
     return full;
   }
@@ -106,7 +121,10 @@ export class FakePortal {
 
     if (!url.pathname.startsWith('/api/cli/v1/')) return send(404, { error: 'not_found', message: 'Not found.' });
     if (this.redirectTo) return send(302, undefined, { Location: this.redirectTo });
-    if (req.headers.authorization !== `Bearer ${this.token}`) return send(401, { error: 'unauthenticated', message: 'Unauthenticated.' });
+    const deploy = req.headers.authorization === `Bearer ${this.deployToken}`;
+    if (req.headers.authorization !== `Bearer ${this.token}` && !deploy) {
+      return send(401, { error: 'unauthenticated', message: 'Unauthenticated.' });
+    }
 
     const path = url.pathname.slice('/api/cli/v1/'.length);
     const parts = path.split('/').map(decodeURIComponent);
@@ -154,6 +172,52 @@ export class FakePortal {
       if (this.releaseAnswer) return send(this.releaseAnswer.status, this.releaseAnswer.body);
       version.releasedAt = new Date().toISOString();
       return send(200, { versionId: version.versionId, version: version.version, released: true, awaitingReview: [] });
+    }
+
+    if (req.method === 'GET' && parts.length === 3 && parts[2] === 'checklist') {
+      if (this.checklistAnswer) return send(this.checklistAnswer.status, this.checklistAnswer.body);
+      return send(200, {
+        status: app.status,
+        ready: app.checklist.every((item) => item.done),
+        submittedAt: app.submittedAt,
+        items: app.checklist,
+      });
+    }
+
+    if (req.method === 'POST' && parts.length === 3 && parts[2] === 'submit') {
+      if (deploy) {
+        return send(403, {
+          error: 'token_not_allowed',
+          message: 'Submitting for review is a decision for a person. Sign in with flycommerce login to submit.',
+        });
+      }
+      if (typeof body?.reviewNotes === 'string' && body.reviewNotes.length > 5000) {
+        return send(422, { error: 'invalid_request', message: 'The review notes may not be greater than 5000 characters.' });
+      }
+      if (this.submitAnswer) return send(this.submitAnswer.status, this.submitAnswer.body);
+      if (app.status === 'published') {
+        return send(409, {
+          error: 'nothing_to_submit',
+          message: `${app.name} is published. Changes to its pages, scripts, install redirect or permissions go to review on their own when you release them, so there's nothing to submit.`,
+        });
+      }
+      if (app.status === 'rejected') {
+        return send(409, { error: 'app_rejected', message: 'This app was rejected. Contact support before resubmitting.' });
+      }
+      if (app.status === 'pending') {
+        return send(409, { error: 'already_pending', message: `${app.name} is already waiting for review.` });
+      }
+      const outstanding = app.checklist.filter((item) => !item.done);
+      if (outstanding.length > 0) {
+        return send(409, {
+          error: 'checklist_incomplete',
+          message: `Not ready to submit: ${outstanding.map((item) => item.label.toLowerCase()).join(', ')}.`,
+          outstanding: outstanding.map((item) => item.key),
+        });
+      }
+      app.status = 'pending';
+      app.submittedAt = new Date().toISOString();
+      return send(200, { status: app.status, submittedAt: app.submittedAt });
     }
 
     if (req.method === 'PUT' && parts.length === 3 && parts[2] === 'dev-config') {

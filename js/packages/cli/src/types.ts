@@ -45,3 +45,23 @@ export interface ReleaseResult {
   live?: boolean;
   status?: AppStatus;
 }
+
+export interface ChecklistItem {
+  key: string;
+  label: string;
+  hint: string;
+  done: boolean;
+  fixUrl: string;
+}
+
+export interface Checklist {
+  status: AppStatus;
+  ready: boolean;
+  submittedAt: string | null;
+  items: ChecklistItem[];
+}
+
+export interface SubmitResult {
+  status: AppStatus;
+  submittedAt: string | null;
+}
