@@ -5,6 +5,7 @@ All notable changes to the `flycommerce-apps` Claude Code plugin. Versions follo
 ## [0.3.0]
 
 - Develop and release with the CLI: one app per environment, `flycommerce app link`, `app dev` through a tunnel with `APP_URL`, `REDIRECT_URI` and `PORT`, `app release`, and `FLYCOMMERCE_TOKEN` in CI.
+- `app release` works out the version, title, tags and changelog from Conventional Commits, previews them with `--dry-run`, and tags the release in git; `app submit` checks the review checklist and submits for review. The skill asks for Conventional Commits and leaves the submit decision to the developer.
 - `app-config.json` for every environment: script `src` and the new `install.redirectUrl` as paths on `appUrl`, `versionId` and `version` optional. `install.redirectUrl` is compared byte for byte, and every file keeps an `appUrl`.
 
 ## [0.2.0]

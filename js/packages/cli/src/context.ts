@@ -21,3 +21,8 @@ export class CliError extends Error {
     this.name = 'CliError';
   }
 }
+
+/** A y/N question at the terminal; only y or yes agrees. */
+export async function confirmed(prompt: NonNullable<Context['prompt']>, question: string): Promise<boolean> {
+  return /^y(es)?$/i.test((await prompt(question)).trim());
+}
