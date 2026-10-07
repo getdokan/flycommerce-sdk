@@ -39,9 +39,13 @@ await platform.close();
 - **Webhooks:** `deliver(store, event, data)` sends the real body, `{event, timestamp, data}`, signed with each subscription's secret. `FakeStore.rawOrder(order)` gives `data` the shape a store sends: snake_case, money as decimal strings, status as a number.
 - **Uninstall:** `hub.uninstall()` refuses the app's tokens and suspends its subscriptions; installing again resumes them.
 
+## Dashboard pages
+
+`ExampleDashboard.start({ hub, appId, appName, appUrl, store, pages })` serves a stand-in for the merchant dashboard. Pass `dashboard.pages` from `app-config.json`: as in the real dashboard, each page is framed at `appUrl` + its `path`, and answers the bridge the same way.
+
 ## Storefront scripts
 
-Pass your `storefront.scripts` from `app-config.json` to `ExampleDashboard.start({ ..., scripts })`, and `/storefront` runs them on an example store page, linked from the dashboard. As on a real store, `window.FlyCommerce` is set first, `interactive` scripts load once the page can be used and `idle` ones after it has loaded, each `async`, so in no guaranteed order. The page's buttons switch between a home and a product page and dispatch `flycommerce:page`.
+Pass your `storefront.scripts` from `app-config.json` to `ExampleDashboard.start({ ..., scripts })`; a `src` that's a path is loaded from `appUrl`. Then `/storefront` runs them on an example store page, linked from the dashboard. As on a real store, `window.FlyCommerce` is set first, `interactive` scripts load once the page can be used and `idle` ones after it has loaded, each `async`, so in no guaranteed order. The page's buttons switch between a home and a product page and dispatch `flycommerce:page`.
 
 ## Links
 

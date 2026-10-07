@@ -25,14 +25,14 @@ Review covers the URL, not every later copy of the file behind it. That's why Fl
 
 ```json
 "storefront": {
-  "scripts": [{ "handle": "chat", "src": "https://chat.example.com/widget.js", "load": "idle" }]
+  "scripts": [{ "handle": "chat", "src": "/widget.js", "load": "idle" }]
 }
 ```
 
 | Key | Rule |
 | --- | --- |
 | `handle` | `[a-z0-9-]{1,40}`, unique within the app. Names the script to the merchant and in support. |
-| `src` | `https`, on the same host as `appUrl`, at most 2000 characters. Plain `http` only for local development. It's public: no secrets in it. |
+| `src` | A path on `appUrl`, like `/widget.js`, or an `https` URL on the same host as `appUrl`; at most 2000 characters. A path starts with a single `/` and is appended to `appUrl` (see [app-config.md](app-config.md#paths-and-urls)), so it follows the app between environments. Plain `http` only for local development. It's public: no secrets in it. |
 | `load` | `interactive`: once the page can be used. `idle`: when the browser is idle after the page has loaded. The default is `idle`. |
 
 At most 3 scripts. `storefront` takes only `scripts`, and each script only these keys.

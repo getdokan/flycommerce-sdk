@@ -96,6 +96,17 @@ describe('appServerConfigFromEnv', () => {
     assert.deepStrictEqual(config.allowedIssuers, ['http://localhost:4000']);
     assert.strictEqual(config.jwksUrl, 'http://localhost:4000/.well-known/jwks.json');
   });
+
+  it('defaults REDIRECT_URI to APP_URL/auth/callback, and lets REDIRECT_URI win', () => {
+    const { REDIRECT_URI, ...withoutRedirect } = env;
+    const hub = { HUB_API_URL: 'https://developers.flycommerce.com/api' };
+    const fromAppUrl = appServerConfigFromEnv({ ...withoutRedirect, ...hub, APP_URL: 'https://quiet-fox.trycloudflare.com/' });
+
+    assert.strictEqual(fromAppUrl.appUrl, 'https://quiet-fox.trycloudflare.com');
+    assert.strictEqual(fromAppUrl.redirectUri, 'https://quiet-fox.trycloudflare.com/auth/callback');
+    assert.strictEqual(appServerConfigFromEnv({ ...env, ...hub, APP_URL: 'https://other.example' }).redirectUri, REDIRECT_URI);
+    assert.throws(() => appServerConfigFromEnv({ ...withoutRedirect, ...hub }), /REDIRECT_URI is required, or APP_URL/);
+  });
 });
 
 describe('authenticate', () => {

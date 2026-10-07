@@ -1,12 +1,26 @@
 import { escapeHtml } from './net.js';
 
+/** appUrl without trailing slashes; a loop, since a regex here is slow on many slashes. */
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
+/** A dashboard page from app-config.json. Without a path, it is served at /<slug>. */
+export interface HostPageEntry {
+  label: string;
+  slug: string;
+  path?: string;
+}
+
 export interface HostPageConfig {
   appId: string;
   appName: string;
   appUrl: string;
   store: string;
   slug: string;
-  pages: { label: string; slug: string }[];
+  pages: HostPageEntry[];
   /** Links to the example store page when the app has storefront scripts. */
   storefront?: boolean;
   role: string;
@@ -25,7 +39,7 @@ const log = document.getElementById('bridge-log');
 const RTL = ['ar', 'fa', 'he', 'ur'];
 let ready = false;
 
-frame.src = config.appUrl.replace(/\/+$/, '') + '/' + config.slug + '#nonce=' + nonce;
+frame.src = config.frameUrl + '#nonce=' + nonce;
 
 const context = () => {
   const locale = document.getElementById('locale').value;
@@ -253,8 +267,11 @@ export function hostPage(config: HostPageConfig): string {
       : `<div style="font-weight:600;padding:6px 10px">${escapeHtml(config.appName)}</div>` +
         config.pages.map((page) => link(page, page.label)).join('');
 
+  // As the dashboard: appUrl + the page's path.
+  const current = config.pages.find((page) => page.slug === config.slug);
+  const frameUrl = withoutTrailingSlashes(config.appUrl) + (current?.path ?? `/${config.slug}`);
   // </script> inside JSON would end the tag early.
-  const json = JSON.stringify(config).replace(/</g, '\\u003c');
+  const json = JSON.stringify({ ...config, frameUrl }).replace(/</g, '\\u003c');
 
   return `<!doctype html>
 <html lang="en" data-theme="${config.theme}">

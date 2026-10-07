@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { AppConfig, AppConfigError, checkAppConfig, loadAppConfig, pagePaths } from '../app-config.js';
+import { AppConfig, AppConfigError, checkAppConfig, loadAppConfig, pagePaths, resolveAppConfig } from '../app-config.js';
 import { serveWebApp } from '../static.js';
 
 const valid: AppConfig = {
@@ -133,7 +133,7 @@ describe('storefront scripts in app-config.json', () => {
     assert.match(problemsWith({ src: 'http://crm.example.com/widget.js' }), /src must use https/);
     assert.match(problemsWith({ src: 'https://cdn.example.net/widget.js' }), /src must be on crm\.example\.com/);
     assert.match(problemsWith({ src: 'https://example.com/widget.js' }), /src must be on crm\.example\.com/);
-    assert.match(problemsWith({ src: '/widget.js' }), /src is not a URL/);
+    assert.match(problemsWith({ src: 'widget.js' }), /src is not a URL or a path starting with \//);
     assert.match(problemsWith({ src: `https://crm.example.com/${'a'.repeat(2000)}.js` }), /up to 2000 characters/);
     assert.match(problemsWith({ src: 'https://user:secret@crm.example.com/widget.js' }), /user name or password/);
     assert.match(problemsWith({ src: 'https://user@crm.example.com/widget.js' }), /user name or password/);
@@ -155,5 +155,85 @@ describe('storefront scripts in app-config.json', () => {
     );
     assert.match(checkAppConfig(withChanges({ storefront: 'chat.js' })).join(), /storefront must be an object/);
     assert.match(checkAppConfig(withChanges({ storefront: {} })).join(), /storefront\.scripts must be a list/);
+  });
+});
+
+describe('paths and the install redirect in app-config.json', () => {
+  const welcome = { handle: 'welcome', src: '/storefront/welcome.js' };
+
+  it('takes a script src and the install redirect as paths on appUrl, and versionId and version as optional', () => {
+    const { versionId, version, ...unversioned } = valid;
+    const config = { ...unversioned, install: { redirectUrl: '/auth/callback' }, storefront: { scripts: [welcome] } };
+
+    assert.deepStrictEqual(checkAppConfig(config), []);
+    assert.deepStrictEqual(checkAppConfig(withChanges({ install: { redirectUrl: 'https://crm.example.com/auth/callback' } })), []);
+    assert.deepStrictEqual(checkAppConfig(withChanges({ install: {} })), []);
+  });
+
+  it('refuses a path that could name another host, and a redirect on another host', () => {
+    const scriptProblems = (src: string) => checkAppConfig(withChanges({ storefront: { scripts: [{ ...welcome, src }] } })).join('\n');
+    const redirectProblems = (redirectUrl: unknown) => checkAppConfig(withChanges({ install: { redirectUrl } })).join('\n');
+
+    assert.match(scriptProblems('//evil.example/welcome.js'), /src must be a path starting with a single \//);
+    assert.match(scriptProblems('/\\evil.example/welcome.js'), /src must not contain \\/);
+    assert.match(scriptProblems('/welcome.js#v2'), /src must not have a #/);
+    assert.match(scriptProblems('/my welcome.js'), /src must not contain spaces/);
+    assert.match(redirectProblems('//evil.example/auth/callback'), /install\.redirectUrl must be a path starting with a single \//);
+    assert.match(redirectProblems('https://evil.example/auth/callback'), /install\.redirectUrl must be on crm\.example\.com/);
+    assert.match(redirectProblems('http://crm.example.com/auth/callback'), /install\.redirectUrl must use https/);
+    assert.match(redirectProblems('/auth/callback#x'), /install\.redirectUrl must not have a #/);
+    assert.match(redirectProblems(''), /install\.redirectUrl must be a path or a URL/);
+    assert.match(
+      checkAppConfig(withChanges({ install: { redirectUrl: '/a', scopes: [] } })).join(),
+      /install takes only redirectUrl; it does not take scopes/
+    );
+    assert.match(checkAppConfig(withChanges({ install: '/auth/callback' })).join(), /install must be an object/);
+  });
+
+  it('keeps the joined install redirect within 255 characters and its host in ASCII, as FlyCommerce does', () => {
+    const redirect = (appUrl: string, redirectUrl: string) => checkAppConfig(withChanges({ appUrl, install: { redirectUrl } })).join('\n');
+    const base = 'https://crm.example.com';
+
+    assert.equal(redirect(base, `/${'a'.repeat(255 - base.length - 1)}`), '');
+    assert.match(redirect(base, `/${'a'.repeat(256 - base.length - 1)}`), /at most 255 characters once joined to appUrl/);
+    assert.match(redirect('https://bücher.example', '/auth/callback'), /ASCII host; write an international domain in its xn-- form/);
+    assert.match(redirect('https://bücher.example', 'https://bücher.example/auth/callback'), /ASCII host/);
+    assert.equal(redirect('https://xn--bcher-kva.example', '/auth/callback'), '');
+  });
+
+  it('keeps the install redirect exactly as written, since it is compared byte for byte', () => {
+    const resolved = resolveAppConfig({ ...valid, appUrl: 'https://Dev.Example.com', install: { redirectUrl: '/Auth/Callback' } });
+
+    assert.equal(resolved.install?.redirectUrl, 'https://Dev.Example.com/Auth/Callback');
+  });
+
+  it('still checks versionId and version when they are there', () => {
+    const problems = checkAppConfig(withChanges({ versionId: 0, version: '1.2' })).join('\n');
+
+    assert.match(problems, /versionId must be a whole number/);
+    assert.match(problems, /version must be three numbers/);
+  });
+
+  it('resolves paths against appUrl, or against the appUrl it is given, and keeps absolute URLs', () => {
+    const config: AppConfig = {
+      ...valid,
+      appUrl: 'https://crm.example.com/',
+      install: { redirectUrl: '/auth/callback' },
+      storefront: { scripts: [welcome, { handle: 'chat', src: 'https://crm.example.com/chat.js', load: 'idle' }] },
+    };
+
+    const resolved = resolveAppConfig(config);
+    assert.strictEqual(resolved.install?.redirectUrl, 'https://crm.example.com/auth/callback');
+    assert.deepStrictEqual(
+      resolved.storefront?.scripts.map((script) => script.src),
+      ['https://crm.example.com/storefront/welcome.js', 'https://crm.example.com/chat.js']
+    );
+    assert.deepStrictEqual(resolved.dashboard, config.dashboard);
+
+    const tunnel = resolveAppConfig(config, { appUrl: 'https://quiet-fox.trycloudflare.com' });
+    assert.strictEqual(tunnel.appUrl, 'https://quiet-fox.trycloudflare.com');
+    assert.strictEqual(tunnel.install?.redirectUrl, 'https://quiet-fox.trycloudflare.com/auth/callback');
+    assert.strictEqual(tunnel.storefront?.scripts[0].src, 'https://quiet-fox.trycloudflare.com/storefront/welcome.js');
+    assert.strictEqual(config.storefront?.scripts[0].src, '/storefront/welcome.js', 'the input is left as it was');
   });
 });

@@ -6,7 +6,8 @@
   "workspaces": [
     "packages/app-bridge",
     "packages/app-server",
-    "packages/app-emulator"
+    "packages/app-emulator",
+    "packages/cli"
   ],
   "engines": {
     "node": ">=22"

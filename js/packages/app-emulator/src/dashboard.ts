@@ -1,10 +1,17 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
-import { hostPage } from './dashboard-page.js';
+import { HostPageEntry, hostPage } from './dashboard-page.js';
 import { FakeHub } from './hub.js';
 import { RunningServer, escapeHtml, sendHtml, sendJson, serve } from './net.js';
 import { StorefrontScriptConfig, storefrontPage } from './storefront-page.js';
 
-export type { StorefrontScriptConfig };
+/** appUrl without trailing slashes; a loop, since a regex here is slow on many slashes. */
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
+export type { HostPageEntry, StorefrontScriptConfig };
 
 export interface ExampleDashboardOptions {
   hub: FakeHub;
@@ -13,8 +20,9 @@ export interface ExampleDashboardOptions {
   /** Where the app serves its dashboard pages, e.g. http://localhost:4600 */
   appUrl: string;
   store: string;
-  pages: { label: string; slug: string }[];
-  /** The app's storefront.scripts from app-config.json; /storefront then runs them on an example store page. */
+  /** The app's dashboard.pages from app-config.json: each is framed at appUrl + its path. */
+  pages: HostPageEntry[];
+  /** The app's storefront.scripts from app-config.json; /storefront then runs them on an example store page. A path src is resolved against appUrl. */
   scripts?: StorefrontScriptConfig[];
   userId?: string;
   locale?: string;
@@ -53,7 +61,11 @@ export class ExampleDashboard {
     const { options } = this;
     const role = ROLES.includes(url.searchParams.get('role') ?? '') ? url.searchParams.get('role')! : 'owner';
 
-    const scripts = options.scripts ?? [];
+    const base = withoutTrailingSlashes(options.appUrl);
+    // As FlyCommerce does with a path src: appended to appUrl.
+    const scripts = (options.scripts ?? []).map((script) =>
+      script.src.startsWith('/') && !script.src.startsWith('//') ? { ...script, src: base + script.src } : script
+    );
 
     if (req.method === 'GET' && url.pathname === '/') {
       res.writeHead(302, {

@@ -86,28 +86,47 @@ Nobody tells an app it was removed: the store just refuses its credential. `isIn
 
 `appServerConfigFromEnv()` reads:
 
-| Variable                      | Required | Meaning                                                                                              |
-| ----------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
-| `APP_ID`, `APP_SECRET`        | yes      | From the developer portal                                                                            |
-| `HUB_API_URL`                 | yes      | FlyCommerce's API, `https://developers.flycommerce.com/api`                                          |
-| `REDIRECT_URI`                | yes      | Your install redirect, exactly as registered                                                         |
-| `JWKS_URL`, `ALLOWED_ISSUERS` | no       | FlyCommerce's: `https://app.flycommerce.com/.well-known/jwks.json` and `https://app.flycommerce.com` |
-| `STORE_BASE_URL`              | no       | Local development only: sends every store's calls, tokens included, to this one host                 |
-| `FRAME_ANCESTORS`             | no       | Dashboards allowed to frame your pages                                                               |
-| `CREDENTIALS_FILE`            | no       | Where `FileCredentialStore` keeps store credentials (default `data/credentials.json`)                |
+| Variable                      | Required | Meaning                                                                                                     |
+| ----------------------------- | -------- | ----------------------------------------------------------------------------------------------------------- |
+| `APP_ID`, `APP_SECRET`        | yes      | From the developer portal                                                                                   |
+| `HUB_API_URL`                 | yes      | FlyCommerce's API, `https://developers.flycommerce.com/api`                                                 |
+| `APP_URL`                     | no       | Where the app is served. `flycommerce app dev` sets it to the tunnel                                        |
+| `REDIRECT_URI`                | no       | Your install redirect, exactly as registered. Defaults to `APP_URL/auth/callback`; one of the two is needed |
+| `JWKS_URL`, `ALLOWED_ISSUERS` | no       | FlyCommerce's: `https://app.flycommerce.com/.well-known/jwks.json` and `https://app.flycommerce.com`        |
+| `STORE_BASE_URL`              | no       | Local development only: sends every store's calls, tokens included, to this one host                        |
+| `FRAME_ANCESTORS`             | no       | Dashboards allowed to frame your pages                                                                      |
+| `CREDENTIALS_FILE`            | no       | Where `FileCredentialStore` keeps store credentials (default `data/credentials.json`)                       |
 
 `FileCredentialStore` suits a single instance: it writes atomically with `0600` permissions. Pass `{ sealer: new Sealer(key) }` to keep every credential encrypted on disk. Running more than one instance? Implement `CredentialStore` (`get`, `put`, `delete`) on your database.
+
+### app-config.json
+
+`loadAppConfig(file)` reads and checks `app-config.json` with FlyCommerce's rules, so a broken file stops the app at start instead of at release; `checkAppConfig(value)` returns every problem with a parsed one. `versionId` and `version` are optional: `flycommerce app release` fills them in.
+
+Write script `src` and `install.redirectUrl` as paths, so the same file works with any `appUrl`:
+
+```json
+{
+  "appId": "my-app",
+  "appUrl": "https://my-app.example",
+  "install": { "redirectUrl": "/auth/callback" },
+  "dashboard": { "pages": [{ "slug": "home", "label": "Home", "path": "/home" }] },
+  "storefront": { "scripts": [{ "handle": "chat", "src": "/chat.js" }] }
+}
+```
+
+`resolveAppConfig(config, { appUrl })` returns the config with those paths as absolute URLs on `appUrl` (the file's own, or the one given), which is what FlyCommerce stores. The install redirect is kept exactly as written, since the install exchange compares it byte for byte; it needs an ASCII host and at most 255 characters once joined to `appUrl`. See [`spec/app-config.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/app-config.md).
 
 ### Storefront scripts
 
 An app can add up to three scripts to the merchant's storefront, for chat, reviews and similar features. Declare them in `app-config.json`:
 
 ```json
-"storefront": { "scripts": [{ "handle": "chat", "src": "https://my-app.example/chat.js", "load": "idle" }] }
+"storefront": { "scripts": [{ "handle": "chat", "src": "/chat.js", "load": "idle" }] }
 ```
 
 - `handle`: lower-case letters, numbers and `-`, up to 40 characters, unique within the app.
-- `src`: `https`, on the same host as `appUrl`, up to 2000 characters.
+- `src`: a path on `appUrl`, like `/chat.js`, or an `https` URL on the same host as `appUrl`; up to 2000 characters.
 - `load`: `interactive` (once the page can be used) or `idle` (after the page has loaded, the default).
 
 `loadAppConfig` checks all of it. Serve the files yourself, as `text/javascript`.
