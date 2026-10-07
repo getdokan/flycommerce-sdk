@@ -75,8 +75,9 @@ A listed app's new pages, permissions and scripts wait for FlyCommerce's review.
 Without --version, the version comes from the Conventional Commits since the last release: a
 breaking change (type! or a BREAKING CHANGE: footer) bumps the major number (the minor one below
 1.0.0), a feat the minor one, anything else releasable (fix, perf, refactor, revert) the patch one.
-The last release is the highest <prefix><x.y.z> git tag in HEAD's history; without one, the
-version released last and the commits since its date. Only commits touching this directory count.
+The last release is the highest <prefix><x.y.z> git tag in HEAD's history; without one, or when a
+newer version was released, the version released last and the commits since its date. Only
+commits touching this directory count.
 The changelog groups them into breaking changes, features, fixes and other; the title is the
 first breaking change or feature, else the first fix; the tags are the commits' scopes.
 It shows all that and asks before releasing, then tags the commit: <prefix><version>, never pushed.
