@@ -59,10 +59,6 @@ export async function reconcileWebhook(
     if (hook.endpoint === subscription.endpoint) existing.push(hook);
   }
 
-  for (const hook of existing) {
-    await client.request('DELETE', `/api/v1/integrations/webhooks/${hook.id}`);
-  }
-
   const created = await client.request<{ data?: { id: number | string; secret?: string } }>('POST', '/api/v1/integrations/webhooks', {
     body: {
       endpoint: subscription.endpoint,
@@ -74,6 +70,12 @@ export async function reconcileWebhook(
 
   if (!created.data?.secret) {
     throw new Error('The store created the webhook but returned no secret.');
+  }
+
+  for (const hook of existing) {
+    if (hook.id !== created.data.id) {
+      await client.request('DELETE', `/api/v1/integrations/webhooks/${hook.id}`).catch(() => {});
+    }
   }
 
   return { id: created.data.id, secret: created.data.secret };

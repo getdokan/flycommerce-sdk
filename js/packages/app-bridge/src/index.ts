@@ -93,6 +93,7 @@ export class AppBridge {
   private readonly applyContext: boolean;
   private cachedToken: string | null = null;
   private tokenExpiresAt = 0;
+  private pendingTokenPromise: Promise<string> | null = null;
   private currentContext: DashboardContext | null = null;
   private currentViewport: FrameViewport | null = null;
   private stopResizing: (() => void) | null = null;
@@ -359,6 +360,7 @@ export class AppBridge {
 
   /**
    * A 60-second session token from the dashboard, reused until 10 seconds before it expires.
+   * Concurrent calls share a single inflight request to prevent request storms.
    */
   public async getSessionToken(): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
@@ -366,11 +368,22 @@ export class AppBridge {
       return this.cachedToken;
     }
 
-    const res = await this.send<SessionTokenResponse>('GET_SESSION_TOKEN');
-    this.cachedToken = res.session_token;
-    this.tokenExpiresAt = now + (res.expires_in || 60);
+    if (this.pendingTokenPromise) {
+      return this.pendingTokenPromise;
+    }
 
-    return this.cachedToken;
+    this.pendingTokenPromise = (async () => {
+      try {
+        const res = await this.send<SessionTokenResponse>('GET_SESSION_TOKEN');
+        this.cachedToken = res.session_token;
+        this.tokenExpiresAt = Math.floor(Date.now() / 1000) + (res.expires_in || 60);
+        return this.cachedToken;
+      } finally {
+        this.pendingTokenPromise = null;
+      }
+    })();
+
+    return this.pendingTokenPromise;
   }
 
   public async toast(message: string, options: ToastOptions = {}): Promise<void> {
@@ -411,12 +424,42 @@ export class AppBridge {
   }
 
   /**
+   * Checks whether a target URL belongs to the app's own origin (or is relative).
+   */
+  private isAppOrigin(target: string): boolean {
+    if (!target || typeof window === 'undefined' || !window.location?.origin) return true;
+    try {
+      const base = window.location.href || `${window.location.origin}/`;
+      const targetUrl = new URL(target, base);
+      return targetUrl.origin === window.location.origin;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
    * fetch() with the session token attached, for calls to the app's own backend.
+   * Authorization header is only added if targeting the app's own origin (or relative paths)
+   * and not already explicitly provided, preventing ambient token leakage to third parties.
    */
   public async fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-    const token = await this.getSessionToken();
-    const headers = new Headers(init.headers || {});
-    headers.set('Authorization', `Bearer ${token}`);
+    const headers = new Headers(init.headers || (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined));
+
+    if (!headers.has('Authorization')) {
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : typeof Request !== 'undefined' && input instanceof Request
+              ? input.url
+              : '';
+
+      if (this.isAppOrigin(urlStr)) {
+        const token = await this.getSessionToken();
+        headers.set('Authorization', `Bearer ${token}`);
+      }
+    }
 
     return window.fetch(input, { ...init, headers });
   }
@@ -428,6 +471,8 @@ export class AppBridge {
 
     this.stopResizing?.();
     this.stopResizing = null;
+    this.pendingTokenPromise = null;
+    this.cachedToken = null;
   }
 }
 
