@@ -27,14 +27,56 @@ export interface OAuthTokens {
 /** The merchant chose not to grant access on the provider's page. */
 export class OAuthDeniedError extends Error {}
 
-interface Pending {
+interface TicketPayload {
   store: string;
   expiresAt: number;
+  nonce: string;
+}
+
+interface FlowPayload {
+  store: string;
+  expiresAt: number;
+  nonce: string;
 }
 
 const TTL_MS = 10 * 60 * 1000;
 
 const randomId = () => crypto.randomBytes(32).toString('base64url');
+
+function deriveKey(secret: string): Buffer {
+  return crypto.createHash('sha256').update(secret).digest();
+}
+
+function seal(payload: unknown, secret: string): string {
+  const key = deriveKey(secret);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const json = JSON.stringify(payload);
+  const encrypted = Buffer.concat([cipher.update(json, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  return [iv.toString('base64url'), tag.toString('base64url'), encrypted.toString('base64url')].join('.');
+}
+
+function open<T = unknown>(sealed: string, secret: string): T | null {
+  try {
+    const parts = sealed.split('.');
+    if (parts.length !== 3) return null;
+    const [ivB64, tagB64, encB64] = parts;
+    const iv = Buffer.from(ivB64, 'base64url');
+    const tag = Buffer.from(tagB64, 'base64url');
+    const encrypted = Buffer.from(encB64, 'base64url');
+    if (iv.length !== 12 || tag.length !== 16) return null;
+    const key = deriveKey(secret);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+
+    return JSON.parse(decrypted) as T;
+  } catch {
+    return null;
+  }
+}
 
 function sameSecret(left: string, right: string): boolean {
   const a = Buffer.from(left);
@@ -57,8 +99,8 @@ function cookieValue(req: IncomingMessage, name: string): string | null {
 
 /** Authorization-code sign-in in its own tab; the cookie, not `state`, binds the return to the browser that began it. */
 export class OAuthFlows {
-  private readonly tickets = new Map<string, Pending>();
-  private readonly flows = new Map<string, Pending>();
+  private readonly spentTickets = new Map<string, number>();
+  private readonly spentFlows = new Map<string, number>();
 
   constructor(
     readonly provider: OAuthProvider,
@@ -80,12 +122,12 @@ export class OAuthFlows {
   issueTicket(store: string): { beginUrl: string; expiresAt: string } {
     this.sweep();
 
-    const id = randomId();
+    const nonce = randomId();
     const expiresAt = this.now() + TTL_MS;
-    this.tickets.set(id, { store, expiresAt });
+    const ticket = seal({ store, expiresAt, nonce }, this.provider.clientSecret);
 
     const url = new URL(this.beginPath, this.provider.redirectUri);
-    url.searchParams.set('ticket', id);
+    url.searchParams.set('ticket', ticket);
 
     return { beginUrl: url.toString(), expiresAt: new Date(expiresAt).toISOString() };
   }
@@ -93,20 +135,19 @@ export class OAuthFlows {
   begin(url: URL, res: ServerResponse): void {
     this.sweep();
 
-    const id = url.searchParams.get('ticket') ?? '';
-    const ticket = this.tickets.get(id);
-    this.tickets.delete(id);
+    const rawTicket = url.searchParams.get('ticket') ?? '';
+    const ticket = open<TicketPayload>(rawTicket, this.provider.clientSecret);
 
-    if (!ticket || ticket.expiresAt <= this.now()) {
+    if (!ticket || ticket.expiresAt <= this.now() || this.spentTickets.has(ticket.nonce)) {
       throw new HttpError(
         400,
         'oauth_link_expired',
         'This link has expired or was already used. Go back to your dashboard and click Connect again.'
       );
     }
+    this.spentTickets.set(ticket.nonce, ticket.expiresAt);
 
-    const state = randomId();
-    this.flows.set(state, { store: ticket.store, expiresAt: this.now() + TTL_MS });
+    const state = seal({ store: ticket.store, expiresAt: this.now() + TTL_MS, nonce: randomId() }, this.provider.clientSecret);
 
     const authorize = new URL(this.provider.authorizeUrl);
     authorize.searchParams.set('response_type', 'code');
@@ -130,24 +171,29 @@ export class OAuthFlows {
 
   async complete(req: IncomingMessage, url: URL, res: ServerResponse): Promise<{ store: string; tokens: OAuthTokens }> {
     const marker = cookieValue(req, this.cookieName);
-    const flow = marker ? this.flows.get(marker) : undefined;
-
-    // Spent before anything can fail, so a refreshed or replayed callback cannot finish twice.
-    if (marker) {
-      this.flows.delete(marker);
-    }
-    res.setHeader('Set-Cookie', this.cookie('', 0));
-
     const echoed = url.searchParams.get('state');
 
+    res.setHeader('Set-Cookie', this.cookie('', 0));
+
     // state is required: without it, a callback carrying someone else's code would link their account to this store.
-    if (!marker || !flow || flow.expiresAt <= this.now() || echoed === null || !sameSecret(echoed, marker)) {
+    if (!marker || echoed === null || !sameSecret(echoed, marker)) {
       throw new HttpError(
         400,
         'oauth_flow_invalid',
         `This ${this.provider.label} sign-in did not start in this browser, or took too long. Go back to your dashboard and click Connect again.`
       );
     }
+
+    const flow = open<FlowPayload>(marker, this.provider.clientSecret);
+
+    if (!flow || flow.expiresAt <= this.now() || this.spentFlows.has(flow.nonce)) {
+      throw new HttpError(
+        400,
+        'oauth_flow_invalid',
+        `This ${this.provider.label} sign-in did not start in this browser, or took too long. Go back to your dashboard and click Connect again.`
+      );
+    }
+    this.spentFlows.set(flow.nonce, flow.expiresAt);
 
     if (url.searchParams.get('error')) {
       throw new OAuthDeniedError(url.searchParams.get('error_description') || url.searchParams.get('error') || 'access_denied');
@@ -209,10 +255,10 @@ export class OAuthFlows {
   private sweep(): void {
     const now = this.now();
 
-    for (const pending of [this.tickets, this.flows]) {
-      for (const [id, entry] of pending) {
-        if (entry.expiresAt <= now) {
-          pending.delete(id);
+    for (const pending of [this.spentTickets, this.spentFlows]) {
+      for (const [nonce, expiresAt] of pending) {
+        if (expiresAt <= now) {
+          pending.delete(nonce);
         }
       }
     }

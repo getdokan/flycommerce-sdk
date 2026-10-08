@@ -222,4 +222,56 @@ describe('OAuthFlows', () => {
 
     assert.match(String(headers['Set-Cookie']), /; Secure$/);
   });
+
+  it('works statelessly across distinct server instances without shared memory', async () => {
+    const providerConfig = {
+      name: 'acme',
+      label: 'Acme',
+      authorizeUrl: 'https://login.acme.test/oauth2/authorize',
+      tokenUrl: flows.provider.tokenUrl,
+      clientId: 'client-1',
+      clientSecret: 'secret-1',
+      redirectUri: `${appUrl}/auth/acme/callback`,
+    };
+
+    const podA = new OAuthFlows(providerConfig, () => clock);
+    const podB = new OAuthFlows(providerConfig, () => clock);
+    const podC = new OAuthFlows(providerConfig, () => clock);
+
+    // Pod A issues the ticket
+    const ticket = podA.issueTicket('multi-pod.flycom.shop');
+
+    // Pod B begins the flow
+    let redirectLocation = '';
+    let setCookieHeader = '';
+    const fakeRes = {
+      writeHead: (_code: number, headers: Record<string, string>) => {
+        redirectLocation = headers['Location'];
+        setCookieHeader = headers['Set-Cookie'];
+      },
+      end: () => {},
+    } as unknown as http.ServerResponse;
+
+    podB.begin(new URL(ticket.beginUrl), fakeRes);
+
+    const authorizeUrl = new URL(redirectLocation);
+    const state = authorizeUrl.searchParams.get('state')!;
+    const cookieVal = setCookieHeader.split(';')[0];
+
+    // Pod C completes the flow
+    const fakeReq = {
+      headers: { cookie: cookieVal },
+    } as unknown as http.IncomingMessage;
+    const callbackUrl = new URL(`${providerConfig.redirectUri}?code=code-1&state=${state}`);
+    const resHeaders: Record<string, string> = {};
+    const fakeCallbackRes = {
+      setHeader: (k: string, v: string) => {
+        resHeaders[k] = v;
+      },
+    } as unknown as http.ServerResponse;
+
+    const completed = await podC.complete(fakeReq, callbackUrl, fakeCallbackRes);
+    assert.strictEqual(completed.store, 'multi-pod.flycom.shop');
+    assert.strictEqual(completed.tokens.accessToken, 'access-1');
+  });
 });
