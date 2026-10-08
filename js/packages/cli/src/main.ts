@@ -4,6 +4,7 @@ import { LIMITS } from './changelog.js';
 import { CliError, Context } from './context.js';
 import { deleteCredential } from './credentials.js';
 import { DEFAULT_COMMAND, DEFAULT_PORT, dev } from './dev.js';
+import { initApp } from './init.js';
 import { login } from './login.js';
 import { CLI_VERSION, DEFAULT_PORTAL, portalUrl } from './portal.js';
 import { printable } from './printable.js';
@@ -18,6 +19,7 @@ Commands:
   login            Sign in to the developer portal in your browser
   logout           Forget this computer's sign-in
   whoami           Show who you're signed in as
+  app init         Create a new FlyCommerce app from a template
   app list         List your apps
   app link         Write an app's ID into app-config.json or app-config.<name>.json
   app dev          Run a development app on your store, through a tunnel to this computer
@@ -44,6 +46,12 @@ The link is printed too, for a computer whose browser doesn't open by itself.`,
 
 Forgets this computer's sign-in to the portal. Revoke the token itself in the portal's Credentials tab.`,
   whoami: `Usage: flycommerce whoami [--portal <url>]`,
+  'app init': `Usage: flycommerce app init [<directory>] [--template <name>]
+
+Creates a new FlyCommerce app in <directory> from an example template (default: order-export).
+Examples repository: https://github.com/getdokan/flycommerce-app-examples.git
+
+  --template <name>  Template name from examples (default: order-export)`,
   'app list': `Usage: flycommerce app list [--portal <url>]
 
 Your apps, with their App IDs and whether each is published.`,
@@ -118,6 +126,7 @@ const OPTIONS: Record<string, Options> = {
   login: {},
   logout: {},
   whoami: {},
+  'app init': { template: { type: 'string' } },
   'app list': {},
   'app link': { ...CONFIG, app: { type: 'string' } },
   'app dev': { ...CONFIG, port: { type: 'string' }, 'tunnel-url': { type: 'string' } },
@@ -176,7 +185,8 @@ async function dispatch(argv: string[], ctx: Context): Promise<number> {
     return 0;
   }
 
-  const name = first === 'app' ? (second === undefined || second.startsWith('-') ? 'app' : `app ${second}`) : first;
+  const name =
+    first === 'app' ? (second === undefined || second.startsWith('-') ? 'app' : `app ${second}`) : first === 'init' ? 'app init' : first;
 
   if (name === 'app') {
     ctx.stdout(HELP);
@@ -209,7 +219,7 @@ async function dispatch(argv: string[], ctx: Context): Promise<number> {
     ctx.stdout(COMMAND_HELP[name]);
     return 0;
   }
-  if (positionals.length > 0) {
+  if (positionals.length > 0 && name !== 'app init') {
     throw new CliError(`flycommerce ${name} doesn't take ${positionals.join(' ')}. Run flycommerce ${name} --help.`);
   }
   if (command.length > 0 && name !== 'app dev') {
@@ -233,6 +243,9 @@ async function dispatch(argv: string[], ctx: Context): Promise<number> {
       return 0;
     case 'whoami':
       await whoami(ctx, portal);
+      return 0;
+    case 'app init':
+      await initApp(ctx, { directory: positionals[0], template: text('template') });
       return 0;
     case 'app list':
       await listApps(ctx, portal);
