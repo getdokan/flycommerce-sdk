@@ -28,6 +28,14 @@ bridge.setTitleBar({ title: 'Orders' });
 await bridge.toast('Saved');
 ```
 
+`bridge.fetch()` sends the session token only to the page's own origin. If your API is on another origin, list it, and allow the page's origin in that API's CORS:
+
+```ts
+const bridge = createApp({ appId: appIdFromPage(), fetchOrigins: ['https://api.my-app.example'] });
+```
+
+`bridge.fetch()` refuses any other URL before sending anything; call other servers with `window.fetch()`. An `Authorization` header you set yourself is kept. Calls made at the same time share one token request.
+
 With React:
 
 ```tsx
@@ -82,6 +90,7 @@ const session = await verifySessionToken(token, { appId: process.env.APP_ID! });
 ## Security
 
 - The bridge only talks to the dashboard that framed it. It checks the sender and origin of every message, and never posts to `*`.
+- `fetch()` sends the session token only to the page's origin and `fetchOrigins`, so a URL you didn't list never receives it.
 - `verifySessionToken` accepts only RS256 tokens signed by a FlyCommerce key, for your app (`aud`) and from FlyCommerce (`iss`), within their 60-second life.
 
 The token format is in [`spec/session-token.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/session-token.md). Report vulnerabilities through [SECURITY.md](https://github.com/getdokan/flycommerce-sdk/blob/main/SECURITY.md).

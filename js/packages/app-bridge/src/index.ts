@@ -82,6 +82,15 @@ function popupsIn(node: Node): Element[] {
   return node.matches(POPUPS) ? [node] : Array.from(node.querySelectorAll(POPUPS));
 }
 
+function httpOrigin(url: string): string {
+  const { protocol, origin } = new URL(url);
+  if (protocol !== 'https:' && protocol !== 'http:') {
+    throw new Error(`fetchOrigins takes http and https origins, not ${protocol}`);
+  }
+
+  return origin;
+}
+
 export class AppBridge {
   public readonly appId: string;
   /** The dashboard's context once it answers APP_READY; null outside the dashboard or when it never answers. */
@@ -93,6 +102,8 @@ export class AppBridge {
   private readonly applyContext: boolean;
   private cachedToken: string | null = null;
   private tokenExpiresAt = 0;
+  private pendingToken: Promise<string> | null = null;
+  private readonly fetchOrigins: Set<string>;
   private currentContext: DashboardContext | null = null;
   private currentViewport: FrameViewport | null = null;
   private stopResizing: (() => void) | null = null;
@@ -105,6 +116,7 @@ export class AppBridge {
     this.parentWindow = typeof window !== 'undefined' ? window.parent : null;
     this.parentOrigin = config.parentOrigin ?? (typeof document !== 'undefined' ? referrerOrigin() : null);
     this.applyContext = config.applyContext ?? true;
+    this.fetchOrigins = new Set((config.fetchOrigins ?? []).map(httpOrigin));
 
     if (typeof window === 'undefined') {
       this.ready = Promise.resolve(null);
@@ -358,7 +370,7 @@ export class AppBridge {
   }
 
   /**
-   * A 60-second session token from the dashboard, reused until 10 seconds before it expires.
+   * A 60-second session token from the dashboard, reused until 10 seconds before it expires; concurrent calls share one request.
    */
   public async getSessionToken(): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
@@ -366,11 +378,21 @@ export class AppBridge {
       return this.cachedToken;
     }
 
-    const res = await this.send<SessionTokenResponse>('GET_SESSION_TOKEN');
-    this.cachedToken = res.session_token;
-    this.tokenExpiresAt = now + (res.expires_in || 60);
+    if (!this.pendingToken) {
+      const pending = this.send<SessionTokenResponse>('GET_SESSION_TOKEN')
+        .then((res) => {
+          this.cachedToken = res.session_token;
+          this.tokenExpiresAt = now + (res.expires_in || 60);
 
-    return this.cachedToken;
+          return res.session_token;
+        })
+        .finally(() => {
+          if (this.pendingToken === pending) this.pendingToken = null;
+        });
+      this.pendingToken = pending;
+    }
+
+    return this.pendingToken;
   }
 
   public async toast(message: string, options: ToastOptions = {}): Promise<void> {
@@ -410,13 +432,38 @@ export class AppBridge {
     this.notify('TITLE_BAR', titleBar);
   }
 
+  // Resolved as fetch() resolves it, so a <base href> on another host can't turn a relative path into a leak.
+  private originOf(input: RequestInfo | URL): string | null {
+    const target = typeof input === 'string' ? input : input instanceof URL ? input.href : input?.url;
+    if (typeof target !== 'string') return null;
+
+    try {
+      const base = typeof document !== 'undefined' && document.baseURI ? document.baseURI : window.location.href;
+      const { origin } = new URL(target, base);
+
+      return origin === 'null' ? null : origin;
+    } catch {
+      return null;
+    }
+  }
+
   /**
-   * fetch() with the session token attached, for calls to the app's own backend.
+   * fetch() with the session token attached, only to the page's own origin or one in createApp's `fetchOrigins`.
    */
   public async fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-    const token = await this.getSessionToken();
-    const headers = new Headers(init.headers || {});
-    headers.set('Authorization', `Bearer ${token}`);
+    const origin = this.originOf(input);
+
+    if (!origin || (origin !== window.location.origin && !this.fetchOrigins.has(origin))) {
+      throw new Error(
+        `AppBridge fetch() sends the session token only to this page's origin and createApp's fetchOrigins, not to ${origin ?? 'this URL'}. Use window.fetch() for other servers.`
+      );
+    }
+
+    const headers = new Headers(init.headers ?? (input instanceof Request ? input.headers : undefined));
+
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${await this.getSessionToken()}`);
+    }
 
     return window.fetch(input, { ...init, headers });
   }
@@ -428,6 +475,8 @@ export class AppBridge {
 
     this.stopResizing?.();
     this.stopResizing = null;
+    this.pendingToken = null;
+    this.cachedToken = null;
   }
 }
 
