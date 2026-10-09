@@ -56,7 +56,7 @@ http
 
 ### Webhooks
 
-Subscribe in `handleInstall`'s `onInstalled`, which runs before the merchant is sent back. `reconcileWebhook` leaves exactly one subscription per endpoint and returns its secret; keep that sealed. If `onInstalled` fails, the install still completes, so call `reconcileWebhook` again on startup for any store with no secret.
+Subscribe in `handleInstall`'s `onInstalled`, which runs before the merchant is sent back. `reconcileWebhook` creates a fresh subscription for the endpoint, then deletes the older ones, and returns the new secret; keep that sealed. If creating fails, the older ones are left as they were. One it can't delete stays until the next call, and its deliveries fail `readWebhook`'s check once you keep the new secret. If `onInstalled` fails, the install still completes, so call `reconcileWebhook` again on startup for any store with no secret.
 
 ```ts
 import { readWebhook, reconcileWebhook } from '@flycommerce/app-server';

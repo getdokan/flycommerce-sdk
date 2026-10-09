@@ -213,7 +213,7 @@ describe('reconcileWebhook', () => {
 
     const result = await reconcileWebhook(mockClient, {
       endpoint: 'https://app.test/webhook',
-      events: ['orders.created'],
+      events: ['order.created'],
     });
 
     assert.deepStrictEqual(result, { id: 201, secret: 'created-secret' });
@@ -238,11 +238,36 @@ describe('reconcileWebhook', () => {
     await assert.rejects(
       reconcileWebhook(mockClient, {
         endpoint: 'https://app.test/webhook',
-        events: ['orders.created'],
+        events: ['order.created'],
       }),
       /store connection failed/
     );
 
     assert.deepStrictEqual(callLog, ['POST /api/v1/integrations/webhooks']);
+  });
+
+  it('returns the new secret and keeps pruning when an old subscription cannot be deleted', async () => {
+    const callLog: string[] = [];
+    const mockClient = {
+      async *paginate() {
+        yield { id: 101, endpoint: 'https://app.test/webhook' };
+        yield { id: 102, endpoint: 'https://app.test/webhook' };
+      },
+      request: async (method: string, path: string) => {
+        callLog.push(`${method} ${path}`);
+        if (method === 'POST') return { data: { id: 201, secret: 'created-secret' } };
+        if (path.endsWith('/101')) throw new Error('store connection failed');
+        return {};
+      },
+    } as unknown as StoreClient;
+
+    const result = await reconcileWebhook(mockClient, { endpoint: 'https://app.test/webhook', events: ['order.created'] });
+
+    assert.deepStrictEqual(result, { id: 201, secret: 'created-secret' });
+    assert.deepStrictEqual(callLog, [
+      'POST /api/v1/integrations/webhooks',
+      'DELETE /api/v1/integrations/webhooks/101',
+      'DELETE /api/v1/integrations/webhooks/102',
+    ]);
   });
 });

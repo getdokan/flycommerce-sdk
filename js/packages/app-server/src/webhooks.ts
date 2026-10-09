@@ -46,8 +46,9 @@ export async function readWebhook<T = Record<string, unknown>>(
 }
 
 /**
- * Makes sure this store has exactly one subscription for `endpoint`: deletes the app's existing ones for it and creates
- * a fresh one, because a secret is only ever shown when a subscription is created. Keep the returned secret, sealed.
+ * Makes sure this store has one subscription for `endpoint`: creates a fresh one, because a secret is only ever shown
+ * when a subscription is created, then deletes the app's older ones for it. If creating fails, the older ones are left
+ * as they were; one that can't be deleted stays until the next call. Keep the returned secret, sealed.
  */
 export async function reconcileWebhook(
   client: StoreClient,
@@ -72,10 +73,9 @@ export async function reconcileWebhook(
     throw new Error('The store created the webhook but returned no secret.');
   }
 
+  // The new subscription already works, so a failed delete must not cost the caller its secret.
   for (const hook of existing) {
-    if (hook.id !== created.data.id) {
-      await client.request('DELETE', `/api/v1/integrations/webhooks/${hook.id}`).catch(() => {});
-    }
+    await client.request('DELETE', `/api/v1/integrations/webhooks/${hook.id}`).catch(() => {});
   }
 
   return { id: created.data.id, secret: created.data.secret };
