@@ -83,6 +83,8 @@ export interface AppConfig {
   parentOrigin?: string;
   /** Put the dashboard's locale, direction, theme and visible area on <html>. Defaults to true. */
   applyContext?: boolean;
+  /** Your backend's origins other than the page's own, such as `https://api.my-app.example`, that `fetch()` may send the session token to. */
+  fetchOrigins?: string[];
 }
 
 // The claims of a FlyCommerce session token.

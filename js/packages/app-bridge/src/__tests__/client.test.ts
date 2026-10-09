@@ -59,6 +59,14 @@ function reply(request: any, payload: unknown, from: { source?: unknown; origin?
   });
 }
 
+function fail(request: any, error: string) {
+  listener({
+    source: parent,
+    origin: dashboard,
+    data: { source: 'flycom-dashboard', appId: request.appId, requestId: request.requestId, action: request.action, success: false, error },
+  });
+}
+
 function dashboardEvent(data: Record<string, unknown>, from: { source?: unknown; origin?: string } = {}) {
   listener({
     source: from.source ?? parent,
@@ -168,45 +176,83 @@ describe('@flycommerce/app-bridge client', () => {
     assert.strictEqual(styles.get('--flycom-viewport-height'), '640px');
   });
 
-  it('deduplicates concurrent inflight session token requests', async () => {
+  it('shares one token request between concurrent calls, and asks again after a failure or near expiry', async () => {
     posted.length = 0;
     const app = createApp({ appId: 'printer' });
     reply(posted[0].message, undefined);
+    const tokenRequests = () => posted.filter((entry) => entry.message.action === 'GET_SESSION_TOKEN').map((entry) => entry.message);
 
-    const [t1, t2, t3] = [app.getSessionToken(), app.getSessionToken(), app.getSessionToken()];
-    const tokenRequests = posted.filter((entry) => entry.message.action === 'GET_SESSION_TOKEN');
-    assert.strictEqual(tokenRequests.length, 1, 'only a single postMessage is fired for concurrent calls');
+    const failing = [app.getSessionToken(), app.getSessionToken()];
+    assert.strictEqual(tokenRequests().length, 1);
+    fail(tokenRequests()[0], 'not_allowed');
+    for (const call of failing) await assert.rejects(call, { message: 'not_allowed' });
 
-    reply(tokenRequests[0].message, { session_token: 'shared-token', expires_in: 60 });
-    assert.deepStrictEqual(await Promise.all([t1, t2, t3]), ['shared-token', 'shared-token', 'shared-token']);
+    const concurrent = [app.getSessionToken(), app.getSessionToken(), app.getSessionToken()];
+    assert.strictEqual(tokenRequests().length, 2, 'a failed request is not reused');
+    reply(tokenRequests()[1], { session_token: 'short-lived', expires_in: 5 });
+    assert.deepStrictEqual(await Promise.all(concurrent), ['short-lived', 'short-lived', 'short-lived']);
+
+    const refreshed = app.getSessionToken();
+    assert.strictEqual(tokenRequests().length, 3, 'a token within 10 seconds of expiry is not served');
+    reply(tokenRequests()[2], { session_token: 'fresh', expires_in: 60 });
+    assert.strictEqual(await refreshed, 'fresh');
+    assert.strictEqual(await app.getSessionToken(), 'fresh');
+    assert.strictEqual(tokenRequests().length, 3);
   });
 
-  it('attaches session token only to same-origin requests and preserves existing headers', async () => {
+  it('sends the session token only to the page origin and fetchOrigins, and refuses other URLs', async () => {
+    posted.length = 0;
+    fetchCalls.length = 0;
+    const app = createApp({ appId: 'printer', fetchOrigins: ['https://api.printer.example/'] });
+    reply(posted[0].message, undefined);
+
+    const first = app.fetch('/api/invoices');
+    await Promise.resolve();
+    reply(posted.find((entry) => entry.message.action === 'GET_SESSION_TOKEN')!.message, { session_token: 'tok-123', expires_in: 60 });
+    await first;
+
+    await app.fetch('https://printer.example.org/api/invoices');
+    await app.fetch(new URL('https://api.printer.example/v1/invoices'));
+    await app.fetch(new Request('https://api.printer.example/v1/invoices', { headers: { 'X-Trace': 't-1' } }));
+    await app.fetch('/api/custom', { headers: { Authorization: 'CustomKey 999' } });
+
+    const auth = fetchCalls.map((call) => new Headers(call.init.headers).get('Authorization'));
+    assert.deepStrictEqual(auth, ['Bearer tok-123', 'Bearer tok-123', 'Bearer tok-123', 'Bearer tok-123', 'CustomKey 999']);
+    assert.strictEqual(new Headers(fetchCalls[3].init.headers).get('X-Trace'), 't-1', "a Request's own headers are kept");
+
+    fetchCalls.length = 0;
+    for (const url of [
+      'https://api.stripe.com/v1/charges',
+      '//evil.example/steal',
+      'http://printer.example.org/api/invoices',
+      'https://printer.example.org:8443/api/invoices',
+      'https://printer.example.org.evil.example/api',
+      'data:text/plain,hi',
+    ]) {
+      await assert.rejects(app.fetch(url), { message: /only to this page's origin/ }, url);
+    }
+    await assert.rejects(app.fetch(new Request('https://api.stripe.com/v1/charges')), { message: /only to this page's origin/ });
+    assert.strictEqual(fetchCalls.length, 0, 'nothing is sent to another origin');
+  });
+
+  it('resolves a relative URL against the document base, as fetch() does', async () => {
     posted.length = 0;
     fetchCalls.length = 0;
     const app = createApp({ appId: 'printer' });
     reply(posted[0].message, undefined);
 
-    // Call 1: relative URL (same-origin)
-    const p1 = app.fetch('/api/invoices');
-    const req1 = posted.find((entry) => entry.message.action === 'GET_SESSION_TOKEN')!.message;
-    reply(req1, { session_token: 'tok-123', expires_in: 60 });
-    await p1;
+    Object.assign(fakeDocument, { baseURI: 'https://cdn.example/' });
+    try {
+      await assert.rejects(app.fetch('/api/invoices'), { message: /not to https:\/\/cdn\.example/ });
+      assert.strictEqual(fetchCalls.length, 0);
+    } finally {
+      delete (fakeDocument as { baseURI?: string }).baseURI;
+    }
+  });
 
-    const auth1 = new Headers(fetchCalls[0].init.headers).get('Authorization');
-    assert.strictEqual(auth1, 'Bearer tok-123');
-
-    // Call 2: cross-origin URL (must NOT attach session token)
-    fetchCalls.length = 0;
-    await app.fetch('https://api.stripe.com/v1/charges');
-    const auth2 = new Headers(fetchCalls[0].init.headers).get('Authorization');
-    assert.strictEqual(auth2, null, 'cross-origin request must not receive session token');
-
-    // Call 3: custom Authorization header already set (must NOT be overwritten)
-    fetchCalls.length = 0;
-    await app.fetch('/api/custom', { headers: { Authorization: 'CustomKey 999' } });
-    const auth3 = new Headers(fetchCalls[0].init.headers).get('Authorization');
-    assert.strictEqual(auth3, 'CustomKey 999', 'pre-existing Authorization must be preserved');
+  it('refuses a fetchOrigins entry that is not an http origin', () => {
+    assert.throws(() => createApp({ appId: 'printer', fetchOrigins: ['api.printer.example'] }));
+    assert.throws(() => createApp({ appId: 'printer', fetchOrigins: ['ftp://api.printer.example'] }), { message: /http and https/ });
   });
 
   it('refuses to talk when it cannot tell who embedded it', async () => {
