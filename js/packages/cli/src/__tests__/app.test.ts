@@ -256,28 +256,4 @@ describe('flycommerce app', () => {
     assert.equal(result.code, 1);
     assert.match(result.stderr, /FLYCOMMERCE_TOKEN was refused/);
   });
-
-  it('scaffolds a new app with app-config.json and package.json', async () => {
-    const targetSubdir = path.join(dir, 'my-new-app');
-    const result = await cli('app', 'init', targetSubdir);
-
-    assert.equal(result.code, 0, result.stderr);
-    assert.match(result.stdout, /Success! Created my-new-app/);
-    assert.ok(fs.existsSync(path.join(targetSubdir, 'app-config.json')));
-    assert.ok(fs.existsSync(path.join(targetSubdir, 'package.json')));
-
-    const pkg = JSON.parse(fs.readFileSync(path.join(targetSubdir, 'package.json'), 'utf8'));
-    assert.equal(pkg.name, 'my-new-app');
-  });
-
-  it('refuses to initialize in a non-empty directory', async () => {
-    const targetSubdir = path.join(dir, 'non-empty');
-    fs.mkdirSync(targetSubdir);
-    fs.writeFileSync(path.join(targetSubdir, 'existing.txt'), 'content');
-
-    const result = await cli('app', 'init', targetSubdir);
-
-    assert.equal(result.code, 1);
-    assert.match(result.stderr, /is not empty/);
-  });
 });

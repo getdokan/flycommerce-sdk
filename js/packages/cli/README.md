@@ -1,6 +1,6 @@
 # @flycommerce/cli
 
-The FlyCommerce command line, `flycommerce`: sign in to the developer portal, link `app-config.json` to an app, run a development app on your own store through a tunnel, release versions with changelogs written from your commits, and submit the app for review.
+The FlyCommerce command line, `flycommerce`: start an app from an example, sign in to the developer portal, link `app-config.json` to an app, run a development app on your own store through a tunnel, release versions with changelogs written from your commits, and submit the app for review.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/getdokan/flycommerce-sdk/blob/main/LICENSE)
 
@@ -31,6 +31,7 @@ The two files differ only in `appId`, and `appUrl` is the only thing that differ
 | `flycommerce login`                                                                         | Signs in to the developer portal in your browser.                        |
 | `flycommerce logout`                                                                        | Forgets this computer's sign-in.                                         |
 | `flycommerce whoami`                                                                        | Shows who you're signed in as.                                           |
+| `flycommerce app init [<directory>] [--template <name>]`                                    | Copies one of FlyCommerce's example apps into a new directory.           |
 | `flycommerce app list`                                                                      | Lists your apps.                                                         |
 | `flycommerce app link [--config <name>] [--app <appId>]`                                    | Writes an app's ID into `app-config.json`, or `app-config.<name>.json`.  |
 | `flycommerce app dev [--config <name>] [--port <port>] [--tunnel-url <url>] [-- <command>]` | Runs a development app on your store through a tunnel to this computer.  |
@@ -39,6 +40,17 @@ The two files differ only in `appId`, and `appUrl` is the only thing that differ
 | `flycommerce app submit [--config <name>] [--notes <text>] [--yes]`                         | Shows the review checklist and submits the app for FlyCommerce's review. |
 
 `flycommerce <command> --help` explains each one.
+
+### Start an app
+
+```bash
+flycommerce app init my-app                      # from the order-export example
+flycommerce app init my-app --template <name>    # from another example
+```
+
+`app init` downloads FlyCommerce's example apps with `git` (a shallow clone, never asking for a password) and copies one into the directory, which must be new or empty; a directory holding only `.git` counts as empty. Without a directory it uses the current one. `--template` takes an example's name, never a path; a name that isn't an example lists the ones there are.
+
+The copy is named after its directory: `package.json`'s `name`, and `app-config.json`'s `appId` until you link a real app. The example's `versionId` and `version` are left out, since they're the example's, not yours. It creates nothing in the developer portal. Next, `npm install` and `npm run dev` run it on the emulator with no account; to run it on your store, create a development app in the portal, then `flycommerce app link --config dev` and `flycommerce app dev --config dev`.
 
 ### Sign in
 
@@ -141,12 +153,13 @@ The tag it makes stays on the runner. Push it (`git push origin "app-v$VERSION"`
 
 ## Environment
 
-| Variable                  | Meaning                                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------ |
-| `FLYCOMMERCE_TOKEN`       | A token to use instead of the saved sign-in                                                      |
-| `FLYCOMMERCE_PORTAL_URL`  | The developer portal, when `--portal` isn't given (default `https://developers.flycommerce.com`) |
-| `FLYCOMMERCE_CLOUDFLARED` | The `cloudflared` binary to run, when it isn't on `PATH`                                         |
-| `XDG_CONFIG_HOME`         | Where `flycommerce/credentials.json` is kept (default `~/.config`)                               |
+| Variable                     | Meaning                                                                                                   |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `FLYCOMMERCE_TOKEN`          | A token to use instead of the saved sign-in                                                               |
+| `FLYCOMMERCE_PORTAL_URL`     | The developer portal, when `--portal` isn't given (default `https://developers.flycommerce.com`)          |
+| `FLYCOMMERCE_CLOUDFLARED`    | The `cloudflared` binary to run, when it isn't on `PATH`                                                  |
+| `FLYCOMMERCE_TEMPLATES_REPO` | Where `app init` downloads the examples from, like a mirror: an `https://`, `ssh://` or `file://` git URL |
+| `XDG_CONFIG_HOME`            | Where `flycommerce/credentials.json` is kept (default `~/.config`)                                        |
 
 ## Security
 
