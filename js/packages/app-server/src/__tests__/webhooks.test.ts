@@ -9,11 +9,12 @@ import { Readable } from 'node:stream';
 import { FileCredentialStore, MemoryCredentialStore } from '../credentials.js';
 import { HttpError } from '../http.js';
 import { Sealer } from '../sealer.js';
+import type { StoreClient } from '../store-api.js';
 import { isInstallationRevoked } from '../store-api.js';
 import type { HubClient } from '../hub.js';
 import { handleInstall } from '../install.js';
 import { serveWebApp } from '../static.js';
-import { readWebhook, verifyWebhookSignature } from '../webhooks.js';
+import { readWebhook, verifyWebhookSignature, reconcileWebhook } from '../webhooks.js';
 
 const sign = (body: string, secret: string) => crypto.createHmac('sha256', secret).update(body).digest('hex');
 
@@ -190,5 +191,83 @@ describe('isInstallationRevoked', () => {
     assert.strictEqual(isInstallationRevoked(new HttpError(409, 'installation_revoked')), true);
     assert.strictEqual(isInstallationRevoked(new HttpError(401, 'session_expired')), false);
     assert.strictEqual(isInstallationRevoked(new Error('installation_revoked')), false);
+  });
+});
+
+describe('reconcileWebhook', () => {
+  it('creates the new webhook first, then cleans up existing ones for that endpoint', async () => {
+    const callLog: string[] = [];
+    const mockClient = {
+      async *paginate() {
+        yield { id: 101, endpoint: 'https://app.test/webhook' };
+        yield { id: 102, endpoint: 'https://other.test/webhook' };
+      },
+      request: async (method: string, path: string) => {
+        callLog.push(`${method} ${path}`);
+        if (method === 'POST') {
+          return { data: { id: 201, secret: 'created-secret' } };
+        }
+        return {};
+      },
+    } as unknown as StoreClient;
+
+    const result = await reconcileWebhook(mockClient, {
+      endpoint: 'https://app.test/webhook',
+      events: ['order.created'],
+    });
+
+    assert.deepStrictEqual(result, { id: 201, secret: 'created-secret' });
+    assert.deepStrictEqual(callLog, ['POST /api/v1/integrations/webhooks', 'DELETE /api/v1/integrations/webhooks/101']);
+  });
+
+  it('leaves existing webhooks intact if creating the new webhook fails', async () => {
+    const callLog: string[] = [];
+    const mockClient = {
+      async *paginate() {
+        yield { id: 101, endpoint: 'https://app.test/webhook' };
+      },
+      request: async (method: string, path: string) => {
+        callLog.push(`${method} ${path}`);
+        if (method === 'POST') {
+          throw new Error('store connection failed');
+        }
+        return {};
+      },
+    } as unknown as StoreClient;
+
+    await assert.rejects(
+      reconcileWebhook(mockClient, {
+        endpoint: 'https://app.test/webhook',
+        events: ['order.created'],
+      }),
+      /store connection failed/
+    );
+
+    assert.deepStrictEqual(callLog, ['POST /api/v1/integrations/webhooks']);
+  });
+
+  it('returns the new secret and keeps pruning when an old subscription cannot be deleted', async () => {
+    const callLog: string[] = [];
+    const mockClient = {
+      async *paginate() {
+        yield { id: 101, endpoint: 'https://app.test/webhook' };
+        yield { id: 102, endpoint: 'https://app.test/webhook' };
+      },
+      request: async (method: string, path: string) => {
+        callLog.push(`${method} ${path}`);
+        if (method === 'POST') return { data: { id: 201, secret: 'created-secret' } };
+        if (path.endsWith('/101')) throw new Error('store connection failed');
+        return {};
+      },
+    } as unknown as StoreClient;
+
+    const result = await reconcileWebhook(mockClient, { endpoint: 'https://app.test/webhook', events: ['order.created'] });
+
+    assert.deepStrictEqual(result, { id: 201, secret: 'created-secret' });
+    assert.deepStrictEqual(callLog, [
+      'POST /api/v1/integrations/webhooks',
+      'DELETE /api/v1/integrations/webhooks/101',
+      'DELETE /api/v1/integrations/webhooks/102',
+    ]);
   });
 });
