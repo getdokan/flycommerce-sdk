@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError } from './http.js';
+import { Sealer } from './sealer.js';
 
 export interface OAuthProvider {
   /** Names the begin path and the browser cookie, e.g. "mailchimp". */
@@ -27,54 +28,60 @@ export interface OAuthTokens {
 /** The merchant chose not to grant access on the provider's page. */
 export class OAuthDeniedError extends Error {}
 
-interface TicketPayload {
-  store: string;
-  expiresAt: number;
-  nonce: string;
+/** Remembers spent tickets. Shared by several instances, `spend` must be atomic, like Redis `SET key 1 NX PXAT expiresAt`. */
+export interface OAuthNonceStore {
+  /** True the first time `nonce` is spent; keep it until `expiresAt`, in milliseconds since the epoch. */
+  spend(nonce: string, expiresAt: number): boolean | Promise<boolean>;
 }
 
-interface FlowPayload {
+export interface OAuthFlowsOptions {
+  /** At least 32 bytes, known only to your app and the same on every instance. Without it, only the instance that issued a ticket can finish it. */
+  secret?: string;
+  /** In memory by default, which holds per instance: share one store between instances that share a `secret`. */
+  nonces?: OAuthNonceStore;
+  now?: () => number;
+}
+
+interface Ticket {
   store: string;
   expiresAt: number;
-  nonce: string;
+  id: string;
+}
+
+interface Flow {
+  store: string;
+  expiresAt: number;
+  ticket: string;
+  ticketExpiresAt: number;
+  browser: string;
 }
 
 const TTL_MS = 10 * 60 * 1000;
 
 const randomId = () => crypto.randomBytes(32).toString('base64url');
 
-function deriveKey(secret: string): Buffer {
-  return crypto.createHash('sha256').update(secret).digest();
-}
+const digest = (value: string) => crypto.createHash('sha256').update(value).digest('base64url');
 
-function seal(payload: unknown, secret: string): string {
-  const key = deriveKey(secret);
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const json = JSON.stringify(payload);
-  const encrypted = Buffer.concat([cipher.update(json, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
+class MemoryNonceStore implements OAuthNonceStore {
+  private readonly spent = new Map<string, number>();
 
-  return [iv.toString('base64url'), tag.toString('base64url'), encrypted.toString('base64url')].join('.');
-}
+  constructor(private readonly now: () => number) {}
 
-function open<T = unknown>(sealed: string, secret: string): T | null {
-  try {
-    const parts = sealed.split('.');
-    if (parts.length !== 3) return null;
-    const [ivB64, tagB64, encB64] = parts;
-    const iv = Buffer.from(ivB64, 'base64url');
-    const tag = Buffer.from(tagB64, 'base64url');
-    const encrypted = Buffer.from(encB64, 'base64url');
-    if (iv.length !== 12 || tag.length !== 16) return null;
-    const key = deriveKey(secret);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
-    decipher.setAuthTag(tag);
-    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+  spend(nonce: string, expiresAt: number): boolean {
+    const now = this.now();
 
-    return JSON.parse(decrypted) as T;
-  } catch {
-    return null;
+    for (const [id, until] of this.spent) {
+      if (until <= now) {
+        this.spent.delete(id);
+      }
+    }
+
+    if (this.spent.has(nonce)) {
+      return false;
+    }
+    this.spent.set(nonce, expiresAt);
+
+    return true;
   }
 }
 
@@ -99,13 +106,33 @@ function cookieValue(req: IncomingMessage, name: string): string | null {
 
 /** Authorization-code sign-in in its own tab; the cookie, not `state`, binds the return to the browser that began it. */
 export class OAuthFlows {
-  private readonly spentTickets = new Map<string, number>();
-  private readonly spentFlows = new Map<string, number>();
+  private readonly now: () => number;
+  private readonly nonces: OAuthNonceStore;
+  private readonly tickets: Sealer;
+  private readonly states: Sealer;
 
   constructor(
     readonly provider: OAuthProvider,
-    private readonly now: () => number = () => Date.now()
-  ) {}
+    options: OAuthFlowsOptions | (() => number) = {}
+  ) {
+    const { secret, nonces, now }: OAuthFlowsOptions = typeof options === 'function' ? { now: options } : options;
+
+    if (secret !== undefined && Buffer.byteLength(secret) < 32) {
+      throw new Error('The OAuthFlows secret must be at least 32 bytes.');
+    }
+
+    const ikm = secret ?? crypto.randomBytes(32);
+    // Separate keys per token and provider, so a ticket never opens as a state or as another provider's ticket.
+    const key = (purpose: string) =>
+      new Sealer(
+        Buffer.from(crypto.hkdfSync('sha256', ikm, 'flycommerce-oauth-flows', `${purpose}:${provider.name}`, 32)).toString('base64')
+      );
+
+    this.now = now ?? (() => Date.now());
+    this.nonces = nonces ?? new MemoryNonceStore(this.now);
+    this.tickets = key('ticket');
+    this.states = key('state');
+  }
 
   get beginPath(): string {
     return `/auth/${this.provider.name}/begin`;
@@ -120,34 +147,35 @@ export class OAuthFlows {
   }
 
   issueTicket(store: string): { beginUrl: string; expiresAt: string } {
-    this.sweep();
-
-    const nonce = randomId();
     const expiresAt = this.now() + TTL_MS;
-    const ticket = seal({ store, expiresAt, nonce }, this.provider.clientSecret);
+    const ticket: Ticket = { store, expiresAt, id: randomId() };
 
     const url = new URL(this.beginPath, this.provider.redirectUri);
-    url.searchParams.set('ticket', ticket);
+    url.searchParams.set('ticket', this.tickets.seal(JSON.stringify(ticket)));
 
     return { beginUrl: url.toString(), expiresAt: new Date(expiresAt).toISOString() };
   }
 
   begin(url: URL, res: ServerResponse): void {
-    this.sweep();
+    const ticket = this.read<Ticket>(this.tickets, url.searchParams.get('ticket'));
 
-    const rawTicket = url.searchParams.get('ticket') ?? '';
-    const ticket = open<TicketPayload>(rawTicket, this.provider.clientSecret);
-
-    if (!ticket || ticket.expiresAt <= this.now() || this.spentTickets.has(ticket.nonce)) {
+    if (!ticket || !(ticket.expiresAt > this.now())) {
       throw new HttpError(
         400,
         'oauth_link_expired',
         'This link has expired or was already used. Go back to your dashboard and click Connect again.'
       );
     }
-    this.spentTickets.set(ticket.nonce, ticket.expiresAt);
 
-    const state = seal({ store: ticket.store, expiresAt: this.now() + TTL_MS, nonce: randomId() }, this.provider.clientSecret);
+    const browser = randomId();
+    const flow: Flow = {
+      store: ticket.store,
+      expiresAt: this.now() + TTL_MS,
+      ticket: ticket.id,
+      ticketExpiresAt: ticket.expiresAt,
+      browser: digest(browser),
+    };
+    const state = this.states.seal(JSON.stringify(flow));
 
     const authorize = new URL(this.provider.authorizeUrl);
     authorize.searchParams.set('response_type', 'code');
@@ -161,7 +189,7 @@ export class OAuthFlows {
 
     res.writeHead(302, {
       Location: authorize.toString(),
-      'Set-Cookie': this.cookie(state, TTL_MS / 1000),
+      'Set-Cookie': this.cookie(browser, TTL_MS / 1000),
       'Cache-Control': 'no-store',
       // The ticket is in this URL; the provider has no need to see it.
       'Referrer-Policy': 'no-referrer',
@@ -170,30 +198,26 @@ export class OAuthFlows {
   }
 
   async complete(req: IncomingMessage, url: URL, res: ServerResponse): Promise<{ store: string; tokens: OAuthTokens }> {
-    const marker = cookieValue(req, this.cookieName);
-    const echoed = url.searchParams.get('state');
-
+    const browser = cookieValue(req, this.cookieName);
     res.setHeader('Set-Cookie', this.cookie('', 0));
 
     // state is required: without it, a callback carrying someone else's code would link their account to this store.
-    if (!marker || echoed === null || !sameSecret(echoed, marker)) {
+    const flow = this.read<Flow>(this.states, url.searchParams.get('state'));
+
+    // The ticket is spent only once the browser matches, so a leaked state cannot spend the merchant's.
+    if (
+      !browser ||
+      !flow ||
+      !(flow.expiresAt > this.now()) ||
+      !sameSecret(digest(browser), String(flow.browser)) ||
+      !(await this.nonces.spend(flow.ticket, flow.ticketExpiresAt + TTL_MS))
+    ) {
       throw new HttpError(
         400,
         'oauth_flow_invalid',
-        `This ${this.provider.label} sign-in did not start in this browser, or took too long. Go back to your dashboard and click Connect again.`
+        `This ${this.provider.label} sign-in did not start in this browser, took too long, or was already used. Go back to your dashboard and click Connect again.`
       );
     }
-
-    const flow = open<FlowPayload>(marker, this.provider.clientSecret);
-
-    if (!flow || flow.expiresAt <= this.now() || this.spentFlows.has(flow.nonce)) {
-      throw new HttpError(
-        400,
-        'oauth_flow_invalid',
-        `This ${this.provider.label} sign-in did not start in this browser, or took too long. Go back to your dashboard and click Connect again.`
-      );
-    }
-    this.spentFlows.set(flow.nonce, flow.expiresAt);
 
     if (url.searchParams.get('error')) {
       throw new OAuthDeniedError(url.searchParams.get('error_description') || url.searchParams.get('error') || 'access_denied');
@@ -252,15 +276,11 @@ export class OAuthFlows {
     return `${this.cookieName}=${value}; Max-Age=${maxAgeSeconds}; Path=/; HttpOnly; SameSite=Lax${secure}`;
   }
 
-  private sweep(): void {
-    const now = this.now();
-
-    for (const pending of [this.spentTickets, this.spentFlows]) {
-      for (const [nonce, expiresAt] of pending) {
-        if (expiresAt <= now) {
-          pending.delete(nonce);
-        }
-      }
+  private read<T>(sealer: Sealer, sealed: string | null): T | null {
+    try {
+      return sealed ? (JSON.parse(sealer.open(sealed)) as T) : null;
+    } catch {
+      return null;
     }
   }
 }
