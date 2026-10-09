@@ -78,6 +78,50 @@ if (url.pathname === '/webhooks') {
 
 `readWebhook` answers an unknown store and a bad signature with the same `401`. `data` is the record as the store keeps it (snake_case, money as decimal strings). See [`spec/webhooks.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/webhooks.md).
 
+### Third-party sign-in
+
+`OAuthFlows` lets a merchant connect their account on another service, such as Mailchimp, to their store. Your page asks your server for a ticket, with the store taken from the session token, and opens its `beginUrl` in a new tab:
+
+```ts
+import { OAuthFlows } from '@flycommerce/app-server';
+
+const mailchimp = new OAuthFlows(
+  {
+    name: 'mailchimp',
+    label: 'Mailchimp',
+    authorizeUrl: 'https://login.mailchimp.com/oauth2/authorize',
+    tokenUrl: 'https://login.mailchimp.com/oauth2/token',
+    clientId: process.env.MAILCHIMP_CLIENT_ID!,
+    clientSecret: process.env.MAILCHIMP_CLIENT_SECRET!,
+    redirectUri: 'https://my-app.example/auth/mailchimp/callback',
+  },
+  { secret: process.env.OAUTH_SECRET } // optional, see below
+);
+
+if (url.pathname === '/api/mailchimp/connect') {
+  const { store } = await authenticate(req, config);
+  return json(res, 200, mailchimp.issueTicket(store));
+}
+if (url.pathname === mailchimp.beginPath) return mailchimp.begin(url, res);
+if (url.pathname === mailchimp.callbackPath) {
+  const { store, tokens } = await mailchimp.complete(req, url, res);
+  // Keep tokens for store, sealed.
+}
+```
+
+The ticket and the `state` are sealed with AES-256-GCM, so nothing is stored until the callback. The callback finishes only in the browser that began the flow, within ten minutes, and each ticket finishes at most one sign-in.
+
+**More than one instance.** Without `secret`, each instance seals with its own random key, so a flow must begin and finish on the instance that issued the ticket. Give every instance the same `secret`, at least 32 bytes and known only to your app (`openssl rand -base64 32`); never the provider's client secret, which the provider knows.
+
+Spent tickets are remembered in memory, per instance. With several instances, a ticket that leaked within its ten minutes, from browser history or an access log, could finish a second sign-in on another instance and link someone else's account to the store. Share one store between instances; `spend` must be atomic:
+
+```ts
+const nonces = {
+  spend: async (nonce: string, expiresAt: number) => (await redis.set(`oauth:${nonce}`, '1', { NX: true, PXAT: expiresAt })) === 'OK',
+};
+new OAuthFlows(provider, { secret: process.env.OAUTH_SECRET, nonces });
+```
+
 ### Uninstalls
 
 Nobody tells an app it was removed: the store just refuses its credential. `isInstallationRevoked(error)` recognises that refusal, so the app can stop serving the store and `credentials.delete(store)`.
@@ -137,7 +181,7 @@ A script runs on the store's pages with the page's full access. That's why FlyCo
 
 - Every outgoing request has a timeout.
 - API answers are sent with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
-- OAuth sign-in requires the `state` it issued, bound to an `HttpOnly`, `SameSite=Lax` cookie and compared in constant time.
+- OAuth sign-in requires the sealed `state` it issued, and finishes only in the browser holding the `HttpOnly`, `SameSite=Lax` cookie set with it, compared in constant time.
 - The store is always taken from the verified session token, never from the request.
 
 Report vulnerabilities through [SECURITY.md](https://github.com/getdokan/flycommerce-sdk/blob/main/SECURITY.md).
