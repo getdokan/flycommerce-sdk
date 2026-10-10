@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { SessionTokenPayload } from './types.js';
+import { SessionTokenPayload, ShopperTokenPayload } from './types.js';
 
 export interface VerifySessionTokenOptions {
   appId: string;
@@ -75,6 +75,22 @@ function findKey(all: JwkKey[], kid: string | undefined): JwkKey | undefined {
  * expiry, not-before, token type, audience (your app id) and issuer.
  */
 export async function verifySessionToken(token: string, options: VerifySessionTokenOptions): Promise<SessionTokenPayload> {
+  return verifyToken<SessionTokenPayload>(token, options, 'session');
+}
+
+/**
+ * Verifies a shopper token your storefront script got from `window.FlyCommerce.shopperToken()`: the same checks as a
+ * session token, with type `shopper`. It names the shopper; it is not a login and no store API accepts it.
+ */
+export async function verifyShopperToken(token: string, options: VerifySessionTokenOptions): Promise<ShopperTokenPayload> {
+  return verifyToken<ShopperTokenPayload>(token, options, 'shopper');
+}
+
+async function verifyToken<T extends { typ: string; aud: string; iss: string; exp: number; nbf?: number }>(
+  token: string,
+  options: VerifySessionTokenOptions,
+  type: T['typ']
+): Promise<T> {
   const parts = token.split('.');
   if (parts.length !== 3) {
     throw new Error('Malformed JWT: must consist of header, payload, and signature.');
@@ -83,7 +99,7 @@ export async function verifySessionToken(token: string, options: VerifySessionTo
   const [rawHeader, rawPayload, rawSignature] = parts;
 
   let header: { alg?: string; kid?: string; typ?: string };
-  let payload: SessionTokenPayload;
+  let payload: T;
 
   try {
     header = JSON.parse(base64UrlDecode(rawHeader));
@@ -119,15 +135,15 @@ export async function verifySessionToken(token: string, options: VerifySessionTo
   const tolerance = options.clockToleranceSeconds ?? 5;
 
   if (typeof payload.exp !== 'number' || payload.exp < now - tolerance) {
-    throw new Error(`Session token has expired at ${payload.exp}, current time is ${now}.`);
+    throw new Error(`${label(type)} has expired at ${payload.exp}, current time is ${now}.`);
   }
 
   if (typeof payload.nbf === 'number' && payload.nbf > now + tolerance) {
-    throw new Error(`Session token is not valid yet (nbf ${payload.nbf}, current time is ${now}).`);
+    throw new Error(`${label(type)} is not valid yet (nbf ${payload.nbf}, current time is ${now}).`);
   }
 
-  if (payload.typ !== 'session') {
-    throw new Error(`Invalid token type: ${payload.typ}. Expected 'session'.`);
+  if (payload.typ !== type) {
+    throw new Error(`Invalid token type: ${payload.typ}. Expected '${type}'.`);
   }
 
   if (payload.aud !== options.appId) {
@@ -141,6 +157,10 @@ export async function verifySessionToken(token: string, options: VerifySessionTo
   }
 
   return payload;
+}
+
+function label(type: string): string {
+  return type === 'shopper' ? 'Shopper token' : 'Session token';
 }
 
 /**

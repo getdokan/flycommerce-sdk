@@ -1,6 +1,24 @@
-import type { StorefrontContext, StorefrontPageDetail } from './types.js';
+import type {
+  CartLine,
+  CartSummary,
+  StorefrontActionInfo,
+  StorefrontActionInputs,
+  StorefrontActionName,
+  StorefrontActionResult,
+  StorefrontContext,
+  StorefrontPageDetail,
+} from './types.js';
 
-export type { StorefrontContext, StorefrontPageDetail };
+export type {
+  CartLine,
+  CartSummary,
+  StorefrontActionInfo,
+  StorefrontActionInputs,
+  StorefrontActionName,
+  StorefrontActionResult,
+  StorefrontContext,
+  StorefrontPageDetail,
+};
 
 // Opt-in, so a dashboard page's `window` doesn't claim a FlyCommerce global it never has.
 declare global {
@@ -10,5 +28,6 @@ declare global {
 
   interface WindowEventMap {
     'flycommerce:page': CustomEvent<StorefrontPageDetail>;
+    'flycommerce:cart:updated': CustomEvent<CartSummary>;
   }
 }
