@@ -2,7 +2,16 @@ import { execFileSync } from 'node:child_process';
 import { Commit, compareVersions, isVersion } from './changelog.js';
 import { childEnv } from './child.js';
 
-export class GitError extends Error {}
+export class GitError extends Error {
+  constructor(
+    message: string,
+    readonly notInstalled = false
+  ) {
+    super(message);
+  }
+}
+
+const CLONE_TIMEOUT_MS = 120_000;
 
 export interface Repo {
   cwd: string;
@@ -10,20 +19,22 @@ export interface Repo {
   shallow: boolean;
 }
 
-function git(repo: Pick<Repo, 'cwd' | 'env'>, args: string[], input?: string): string {
+function git(repo: Pick<Repo, 'cwd' | 'env'>, args: string[], options: { input?: string; timeout?: number } = {}): string {
   try {
     return execFileSync('git', args, {
       cwd: repo.cwd,
       env: childEnv(repo.env),
       encoding: 'utf8',
-      input,
+      input: options.input,
+      timeout: options.timeout,
       stdio: ['pipe', 'pipe', 'pipe'],
       maxBuffer: 64 * 1024 * 1024,
       windowsHide: true,
     });
   } catch (error) {
     const { code, stderr } = error as NodeJS.ErrnoException & { stderr?: string };
-    if (code === 'ENOENT') throw new GitError('git is not installed');
+    if (code === 'ENOENT') throw new GitError('git is not installed', true);
+    if (code === 'ETIMEDOUT') throw new GitError(`git ${args[0]} took longer than ${(options.timeout ?? 0) / 1000} seconds`);
     const line = String(stderr ?? '')
       .split('\n')
       .find((text) => text.trim() !== '');
@@ -83,5 +94,14 @@ export function hasUncommittedChanges(repo: Repo): boolean {
 
 export function createTag(repo: Repo, name: string, message: string): void {
   // verbatim: the default cleanup would drop the changelog's "### " headings as comments.
-  git(repo, ['tag', '--annotate', '--cleanup=verbatim', '--file=-', name], message);
+  git(repo, ['tag', '--annotate', '--cleanup=verbatim', '--file=-', name], { input: message });
+}
+
+/** The latest commit of url's default branch, into the empty directory dir; never asks for a password. */
+export function shallowClone(url: string, dir: string, env: NodeJS.ProcessEnv): void {
+  git(
+    { cwd: dir, env: { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' } },
+    ['clone', '--depth', '1', '--quiet', '--', url, dir],
+    { timeout: CLONE_TIMEOUT_MS }
+  );
 }
