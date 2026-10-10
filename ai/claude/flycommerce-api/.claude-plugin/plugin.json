@@ -1,6 +1,6 @@
 {
   "name": "flycommerce-api",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Call a FlyCommerce store's REST API from an app or a script: tokens, finding endpoints, filters, paging, sync, errors and webhooks.",
   "author": {
     "name": "FlyCommerce",

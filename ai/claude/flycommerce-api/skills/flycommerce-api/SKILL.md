@@ -1,6 +1,6 @@
 ---
 name: flycommerce-api
-description: Call a FlyCommerce store's REST API, from an installed app or from a script with a personal access token. Covers getting a token, finding the endpoint and permission in the API reference, filters, includes, pagination, incremental sync, errors and webhook subscriptions and signatures. Use when code calls https://<store>/api/v1/..., or the task mentions the FlyCommerce API, a FlyCommerce store's orders, products or webhooks, or a flyp_ token.
+description: Call a FlyCommerce store's REST API, from an installed app or from a script with a personal access token. Covers getting a token, finding the endpoint and permission in the API reference, filters, includes, pagination, incremental sync, errors and webhook subscriptions and signatures. Use when code calls https://<store>/api/v1/..., or the task mentions the FlyCommerce API, a FlyCommerce store's orders, products, product search, carts or webhooks, or a flyp_ token.
 ---
 
 # Calling a FlyCommerce store's API
@@ -43,7 +43,7 @@ Every token lasts 15 minutes. There is no refresh token: get a new one.
 - **Filters are `filters[...]`**, plural; `filter` is a `400` naming the right one. Unknown filter and sort names are a `400`.
 - **Paging is opt-in.** Without `paginate` you get only the first `limit` rows and no sign of more, and `page` alone does nothing. Use `paginate=full` with `page` and `limit` for `meta` (`currentPage`, `lastPage`, `perPage`, `total`), or `paginate=cursor` to walk a large set.
 - **Incremental sync:** `filters[updatedAt]` with `sort=updatedAt,id`. A bare value means "since". Deletions and unpublished records just disappear, so only a periodic full read finds them.
-- **Cart and Checkout** endpoints are the shopper's own flow and refuse app tokens.
+- **Cart and Checkout** endpoints are the shopper's own flow and refuse app tokens. An installed app changes a shopper's cart from its storefront script with `window.FlyCommerce.run('cart.add', …)`, which works on whoever's cart is on the page; there's no cart id to fetch (see the flycommerce-apps skill). Only a client signed in as the customer, like the store's own mobile app, calls the Cart API, where `GET /api/v1/cart` returns that customer's cart.
 
 ## Errors
 
