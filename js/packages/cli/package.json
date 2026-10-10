@@ -1,7 +1,7 @@
 {
   "name": "@flycommerce/cli",
   "description": "The FlyCommerce command line: sign in to the developer portal, link app-config.json to an app, develop on a real store through a tunnel, release versions with changelogs from your commits, and submit for review.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "author": "FlyCommerce",
   "bugs": {
@@ -47,6 +47,6 @@
     "check:package": "publint --strict"
   },
   "dependencies": {
-    "@flycommerce/app-server": "^0.1.0"
+    "@flycommerce/app-server": "^0.2.0"
   }
 }
