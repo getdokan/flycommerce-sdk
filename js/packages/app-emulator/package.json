@@ -1,7 +1,7 @@
 {
   "name": "@flycommerce/app-emulator",
   "description": "A local emulator of the FlyCommerce platform for developing and testing apps: hub, store, dashboard, and an OAuth 2.0 provider kit.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "author": "FlyCommerce",
   "bugs": {
@@ -51,9 +51,9 @@
     "check:package": "publint --strict && attw --pack . --profile esm-only"
   },
   "dependencies": {
-    "@flycommerce/app-bridge": "^0.1.0"
+    "@flycommerce/app-bridge": "^0.2.0"
   },
   "devDependencies": {
-    "@flycommerce/app-server": "^0.1.0"
+    "@flycommerce/app-server": "^0.2.0"
   }
 }
