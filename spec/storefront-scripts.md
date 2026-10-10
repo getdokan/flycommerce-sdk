@@ -75,6 +75,7 @@ Stores that support them add functions to `window.FlyCommerce`; check before cal
 - `can(name)` says whether the store has an action; `actions()` lists them, each with a description written for an AI choosing a tool and whether it `changes` the cart.
 - The store announces every change with its own notice and an Undo, and allows at most 10 changes a minute per page.
 - After each change, `flycommerce:cart:updated` is dispatched on `window` with the new cart as `detail`.
+- Actions work on the cart of whoever is on the page, guest or signed in, so a script never needs the cart's id and is never given it. An app's server can't change a cart: Cart and Checkout refuse app tokens.
 
 These run with the page's privileges, like the rest of your script: they are a convenience and a contract, not a permission boundary.
 
