@@ -63,6 +63,39 @@ export interface FakeOrder {
   };
 }
 
+/** A product as the store API returns it, with the fields a storefront app usually needs. */
+export interface FakeProduct {
+  id: string;
+  title: string;
+  slug: string;
+  status: 'published' | 'draft';
+  price: number;
+  salePrice: number | null;
+  description: string;
+  sellCount: number;
+}
+
+// The store refuses a filter it doesn't know with a 400 for apps, rather than quietly returning everything.
+function unknownFilters(url: URL, allowed: string[]): string[] {
+  return [...url.searchParams.keys()]
+    .map((key) => /^filters?\[([^\]]+)\]$/.exec(key))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .filter((match) => !match[0].startsWith('filters[') || !allowed.includes(match[1]))
+    .map((match) => match[0]);
+}
+
+function page<T>(rows: T[], url: URL): { rows: T[]; meta?: Record<string, number> } {
+  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 15), 1), 100);
+
+  if (url.searchParams.get('paginate') !== 'full') return { rows: rows.slice(0, limit) };
+
+  const current = Math.max(Number(url.searchParams.get('page') ?? 1), 1);
+  return {
+    rows: rows.slice((current - 1) * limit, current * limit),
+    meta: { currentPage: current, lastPage: Math.max(Math.ceil(rows.length / limit), 1), perPage: limit, total: rows.length },
+  };
+}
+
 export interface FakeWebhook {
   id: number;
   appId: string;
@@ -137,7 +170,9 @@ export class StoreFixture {
   readonly orderList: FakeOrder[] = [];
   private readonly team = new Map<string, TeamMember>();
   readonly webhookList: FakeWebhook[] = [];
+  readonly productList: FakeProduct[] = [];
   private nextOrderNo = 1001;
+  private nextProductId = 1;
   private lastStamp = 0;
 
   constructor(readonly domain: string) {}
@@ -188,6 +223,32 @@ export class StoreFixture {
 
     this.orderList.push(order);
     return order;
+  }
+
+  addProduct(overrides: Partial<FakeProduct> & { title: string }): FakeProduct {
+    const id = overrides.id ?? `01PRODUCT${this.nextProductId++}`;
+    const product: FakeProduct = {
+      id,
+      title: overrides.title,
+      slug:
+        overrides.slug ??
+        overrides.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, ''),
+      status: overrides.status ?? 'published',
+      price: overrides.price ?? 10,
+      salePrice: overrides.salePrice ?? null,
+      description: overrides.description ?? '',
+      sellCount: overrides.sellCount ?? 0,
+    };
+
+    this.productList.push(product);
+    return product;
+  }
+
+  product(id: string): FakeProduct | undefined {
+    return this.productList.find((candidate) => candidate.id === id && candidate.status === 'published');
   }
 
   updateOrder(id: string, patch: Partial<Pick<FakeOrder, 'status' | 'paymentStatus' | 'total'>>): FakeOrder {
@@ -331,11 +392,30 @@ export class FakeStore {
     const route = `${req.method} ${url.pathname}`;
     const orderAction = /^PATCH \/api\/v1\/orders\/([^/]+)\/(on-hold|remove-hold|cancel)$/.exec(route);
     const orderShow = /^GET \/api\/v1\/orders\/([^/]+)$/.exec(route);
+    const productShow = /^GET \/api\/v1\/products\/([^/]+)$/.exec(route);
     const webhookItem = /^(GET|DELETE) \/api\/v1\/integrations\/webhooks\/(\d+)$/.exec(route);
 
     if (route === 'GET /api/v1/orders') {
       if (!this.allowed(res, grant, 'orders.read', 'order.view')) return;
+      if (!this.knownFilters(res, url, ['createdAt', 'updatedAt', 'orderNo', 'customerId', 'status'])) return;
       return this.listOrders(res, fixture, url);
+    }
+
+    if (route === 'GET /api/v1/products') {
+      if (!this.allowed(res, grant, 'catalog.read', 'product.view')) return;
+      if (!this.knownFilters(res, url, ['ids', 'slug'])) return;
+      return this.listProducts(res, fixture, url);
+    }
+
+    if (route === 'GET /api/v1/search/products') {
+      if (!this.allowed(res, grant, 'catalog.read', 'product.view')) return;
+      return this.searchProducts(res, fixture, url);
+    }
+
+    if (productShow && productShow[1] !== 'batch') {
+      if (!this.allowed(res, grant, 'catalog.read', 'product.view')) return;
+      const product = fixture.product(decodeURIComponent(productShow[1]));
+      return product ? sendJson(res, 200, { data: product }) : sendJson(res, 404, { message: 'Product not found.' });
     }
 
     if (orderShow) {
@@ -399,24 +479,64 @@ export class FakeStore {
     return false;
   }
 
+  private knownFilters(res: ServerResponse, url: URL, allowed: string[]): boolean {
+    const unknown = unknownFilters(url, allowed);
+    if (unknown.length === 0) return true;
+
+    sendJson(res, 400, {
+      message: `Unknown filter ${unknown.join(', ')}. This list takes ${allowed.map((name) => `filters[${name}]`).join(', ')}.`,
+    });
+    return false;
+  }
+
   // As the real store: without ?paginate=full there are no pages, only the first `limit` rows and no meta.
   private listOrders(res: ServerResponse, fixture: StoreFixture, url: URL): void {
-    const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 15), 1), 100);
     const newestFirst = (url.searchParams.get('sort') ?? '-createdAt') === '-createdAt';
+    const exact = (name: string) => url.searchParams.get(`filters[${name}]`);
     const sorted = [...fixture.orderList]
       .filter((order) => matchesDateFilters(order, url))
+      .filter((order) => exact('orderNo') === null || String(order.orderNo) === exact('orderNo'))
+      .filter((order) => exact('customerId') === null || String(order.customerId) === exact('customerId'))
+      .filter((order) => exact('status') === null || order.status === exact('status'))
       .sort((a, b) => (newestFirst ? -1 : 1) * a.createdAt.localeCompare(b.createdAt));
-    const total = sorted.length;
+    const { rows, meta } = page(sorted, url);
 
-    if (url.searchParams.get('paginate') !== 'full') {
-      return sendJson(res, 200, { data: sorted.slice(0, limit).map((order) => this.present(order, url)) });
-    }
+    sendJson(res, 200, { data: rows.map((order) => this.present(order, url)), ...(meta ? { meta } : {}) });
+  }
 
-    const page = Math.max(Number(url.searchParams.get('page') ?? 1), 1);
+  // ?search= on the listing: the slug starts with it, or the title contains it.
+  private listProducts(res: ServerResponse, fixture: StoreFixture, url: URL): void {
+    const term = url.searchParams.get('search')?.toLowerCase();
+    const ids = url.searchParams.get('filters[ids]')?.split(',');
+    const slug = url.searchParams.get('filters[slug]');
+    const found = fixture.productList
+      .filter((product) => product.status === 'published')
+      .filter((product) => !term || product.slug.startsWith(term) || product.title.toLowerCase().includes(term))
+      .filter((product) => !ids || ids.includes(product.id))
+      .filter((product) => slug === null || product.slug === slug);
+    const { rows, meta } = page(found, url);
+
+    sendJson(res, 200, { data: rows, ...(meta ? { meta } : {}) });
+  }
+
+  // The ranked search: every word counts, the products matching most words first. No typo tolerance here.
+  private searchProducts(res: ServerResponse, fixture: StoreFixture, url: URL): void {
+    const words = (url.searchParams.get('search') ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 15), 1), 100);
+    const current = Math.max(Number(url.searchParams.get('page') ?? 1), 1);
+    const scored = fixture.productList
+      .filter((product) => product.status === 'published')
+      .map((product) => {
+        const text = `${product.title} ${product.description}`.toLowerCase();
+        return { product, score: words.filter((word) => text.includes(word)).length };
+      })
+      .filter(({ score }) => words.length === 0 || score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(({ product }) => product);
 
     sendJson(res, 200, {
-      data: sorted.slice((page - 1) * limit, page * limit).map((order) => this.present(order, url)),
-      meta: { currentPage: page, lastPage: Math.max(Math.ceil(total / limit), 1), perPage: limit, total },
+      data: scored.slice((current - 1) * limit, current * limit),
+      meta: { currentPage: current, lastPage: Math.max(Math.ceil(scored.length / limit), 1), perPage: limit, total: scored.length },
     });
   }
 

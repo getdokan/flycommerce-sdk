@@ -59,6 +59,41 @@ window.FlyCommerce = { store: 'demo.flycom.shop', locale: 'en', currency: 'USD',
 
 It holds nothing about the shopper: no customer ID, name, email, cart or order.
 
+## Store actions
+
+Stores that support them add functions to `window.FlyCommerce`; check before calling (`typeof window.FlyCommerce.run === 'function'`). `run(name, input)` does what the shopper could do with a click, through the store's own code, so the cart count and drawer update as usual. It resolves to `{ ok: true, result }` or `{ ok: false, error }`, where `error` is the store's own message.
+
+| Action | Input | Result |
+| --- | --- | --- |
+| `cart.get` | — | `{ lines: [{ productId, variationId?, name, quantity, unitPrice, total }], count, subtotal }`: never the cart's id or anything about the customer |
+| `cart.add` | `{ items: [{ productId, variationId?, quantity }] }`, 1–10 lines, quantity 1–10 | The new cart |
+| `cart.update` | `{ productId, variationId?, quantity }` | The new cart |
+| `cart.remove` | `{ productId, variationId? }` | The new cart |
+| `nav.goto` | `{ to: 'product' \| 'collection' \| 'category', slug }` or `{ to: 'cart' }` | `null`. Never another site, never checkout |
+| `ui.openCart` | — | `null` |
+
+- `can(name)` says whether the store has an action; `actions()` lists them, each with a description written for an AI choosing a tool and whether it `changes` the cart.
+- The store announces every change with its own notice and an Undo, and allows at most 10 changes a minute per page.
+- After each change, `flycommerce:cart:updated` is dispatched on `window` with the new cart as `detail`.
+
+These run with the page's privileges, like the rest of your script: they are a convenience and a contract, not a permission boundary.
+
+## Shopper tokens
+
+`await window.FlyCommerce.shopperToken(appId)` resolves to a token for your app's server, or `null` when the store won't issue one (your app's scripts don't run on this store, or the store can't be reached). Send it in `Authorization: Bearer` and verify it on the server, never in the browser.
+
+It's an RS256 JWT signed with the same keys as session tokens ([session-token.md](session-token.md)), valid for 5 minutes:
+
+| Claim | Meaning |
+| --- | --- |
+| `typ` | `shopper` |
+| `aud`, `iss` | Your App ID; FlyCommerce |
+| `store_domain`, `marketplace_id`, `installation_id` | The store and your installation |
+| `signed_in` | `true` only for a customer's own sign-in. Store staff, and support signed in as a customer, are guests |
+| `customer_id` | The store's id for the customer, only if the merchant granted `storefront.customer`; otherwise `null` |
+
+It identifies; it isn't a login, and no store API accepts it. With `customer_id`, read that customer's orders as your app (`GET /api/v1/orders?filters[customerId]=…`, `orders.read`), and show them only their own.
+
 After each client-side navigation, the page dispatches on `window`:
 
 ```js

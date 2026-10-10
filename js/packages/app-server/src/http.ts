@@ -20,6 +20,25 @@ export function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+/**
+ * Lets your storefront script call this route from any store's domain, custom domains included. Its credential is the
+ * shopper token it sends in Authorization, never a cookie, so any origin is safe. True when it answered a preflight.
+ */
+export function allowStorefrontCalls(req: IncomingMessage, res: ServerResponse): boolean {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Vary', 'Origin');
+
+  if (req.method !== 'OPTIONS') return false;
+
+  res.writeHead(204, {
+    'Access-Control-Allow-Methods': 'GET, POST',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    'Access-Control-Max-Age': '600',
+  });
+  res.end();
+  return true;
+}
+
 export function html(res: ServerResponse, body: string, frameAncestors?: string[], status = 200): void {
   res.writeHead(status, {
     'Content-Type': 'text/html; charset=utf-8',

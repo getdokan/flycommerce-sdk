@@ -35,7 +35,8 @@ await platform.close();
 
 ## What it does like a real store
 
-- **Orders:** `addOrder()` stamps real times, and the order list honours `include`, `paginate=full`, `sort` and `filters[createdAt]` / `filters[updatedAt]` (a bare date means "since").
+- **Orders:** `addOrder()` stamps real times, and the order list honours `include`, `paginate=full`, `sort`, `filters[createdAt]` / `filters[updatedAt]` (a bare date means "since"), `filters[orderNo]`, `filters[customerId]` and `filters[status]`. As on a real store, any other filter, or the singular `filter[…]`, is a 400.
+- **Products:** `addProduct()`; `GET /api/v1/products` with `?search=` (the slug starts with it or the title contains it) and `GET /api/v1/search/products?search=`, which ranks by how many words match (no typo tolerance here). Both need `catalog.read`; drafts are never listed.
 - **Webhooks:** `deliver(store, event, data)` sends the real body, `{event, timestamp, data}`, signed with each subscription's secret. `FakeStore.rawOrder(order)` gives `data` the shape a store sends: snake_case, money as decimal strings, status as a number.
 - **Uninstall:** `hub.uninstall()` refuses the app's tokens and suspends its subscriptions; installing again resumes them.
 
@@ -46,6 +47,8 @@ await platform.close();
 ## Storefront scripts
 
 Pass your `storefront.scripts` from `app-config.json` to `ExampleDashboard.start({ ..., scripts })`; a `src` that's a path is loaded from `appUrl`. Then `/storefront` runs them on an example store page, linked from the dashboard. As on a real store, `window.FlyCommerce` is set first, `interactive` scripts load once the page can be used and `idle` ones after it has loaded, each `async`, so in no guaranteed order. The page's buttons switch between a home and a product page and dispatch `flycommerce:page`.
+
+The page also runs the store actions on an in-page cart: `window.FlyCommerce.run()` with the store's limits, its notice with Undo, `flycommerce:cart:updated`, and `shopperToken()`. Pass `products` (e.g. a fixture's `productList`) so the cart can name them, and switch the page's **Shopper** between a guest and a signed-in customer (`customerId`, default 1001). `platform.hub.shopperToken({ appId, store, customerId })` signs one in tests; the customer's id is in it only if the installation was granted `storefront.customer`.
 
 ## Links
 

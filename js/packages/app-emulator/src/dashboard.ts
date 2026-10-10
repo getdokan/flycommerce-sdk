@@ -2,7 +2,7 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { HostPageEntry, hostPage } from './dashboard-page.js';
 import { FakeHub } from './hub.js';
 import { RunningServer, escapeHtml, sendHtml, sendJson, serve } from './net.js';
-import { StorefrontScriptConfig, storefrontPage } from './storefront-page.js';
+import { StorefrontProduct, StorefrontScriptConfig, storefrontPage } from './storefront-page.js';
 
 /** appUrl without trailing slashes; a loop, since a regex here is slow on many slashes. */
 function withoutTrailingSlashes(value: string): string {
@@ -25,6 +25,10 @@ export interface ExampleDashboardOptions {
   /** The app's storefront.scripts from app-config.json; /storefront then runs them on an example store page. A path src is resolved against appUrl. */
   scripts?: StorefrontScriptConfig[];
   userId?: string;
+  /** Products the example storefront's cart can hold, e.g. a FakeStore fixture's productList. */
+  products?: StorefrontProduct[];
+  /** Who a signed-in shopper is on the example storefront (default 1001). */
+  customerId?: number;
   locale?: string;
   theme?: 'light' | 'dark';
   port?: number;
@@ -90,8 +94,29 @@ export class ExampleDashboard {
           scripts,
           locale: options.locale ?? 'en',
           currency: 'USD',
+          products: options.products,
+          customerId: options.customerId,
         })
       );
+    }
+
+    // The store's own route for a script's shopper token: same-origin only, and only for the app whose scripts run here.
+    const shopperToken = /^\/apps\/([A-Za-z0-9_-]{1,64})\/shopper-token$/.exec(url.pathname);
+
+    if (req.method === 'POST' && shopperToken) {
+      if (req.headers['x-requested-with'] !== 'XMLHttpRequest') {
+        return sendJson(res, 403, { message: 'Ask from the store page.' });
+      }
+
+      if (shopperToken[1] !== options.appId || scripts.length === 0) {
+        return sendJson(res, 404, { message: 'This app does not run on this storefront.' });
+      }
+
+      const customerId = url.searchParams.get('shopper') === 'customer' ? (options.customerId ?? 1001) : null;
+      return sendJson(res, 200, {
+        token: options.hub.shopperToken({ appId: options.appId, store: options.store, customerId }),
+        expiresIn: 300,
+      });
     }
 
     const page = /^\/apps\/([A-Za-z0-9_-]+)$/.exec(url.pathname);

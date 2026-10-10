@@ -3,6 +3,7 @@
 Server-side building blocks for FlyCommerce apps, on Node's own `http` module and with no dependencies beyond `@flycommerce/app-bridge`.
 
 - **`authenticate()`**: verify the session token on a request from your page, and get the store and user.
+- **`authenticateShopper()`**: verify the shopper token on a request from your storefront script, and get the store, whether a customer is signed in, and their id when you were granted `storefront.customer`. `allowStorefrontCalls()` answers the CORS preflight for those requests.
 - **`StoreApi`**: call the store API **as the user** (only what both your app and that user may do) or **as the app** (for webhooks and background jobs). Tokens are exchanged and cached for you.
 - **`handleInstall()`**: finish an install redirect and keep the store's credential.
 - **`OAuthFlows`**: let a merchant sign in to a third-party service (state check, cookie binding, code exchange).

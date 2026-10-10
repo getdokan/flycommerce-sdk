@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { IncomingMessage, ServerResponse } from 'node:http';
-import type { SessionTokenPayload } from '@flycommerce/app-bridge';
+import type { SessionTokenPayload, ShopperTokenPayload } from '@flycommerce/app-bridge';
 import { RunningServer, readJsonBody, sendJson, serve } from './net.js';
 
 export interface RegisteredApp {
@@ -29,6 +29,14 @@ export interface AccessGrant {
   user?: { id: string; role: string; sid: string };
 }
 
+export interface ShopperTokenOptions {
+  appId: string;
+  store: string;
+  /** The signed-in customer; leave it out for a guest. */
+  customerId?: number | null;
+  ttlSeconds?: number;
+}
+
 export interface SessionTokenOptions {
   appId: string;
   store: string;
@@ -42,6 +50,7 @@ export interface SessionTokenOptions {
 
 const ACCESS_TOKEN_TTL_SECONDS = 900;
 const SESSION_TOKEN_TTL_SECONDS = 60;
+const SHOPPER_TOKEN_TTL_SECONDS = 300;
 const KEY_ID = 'fake-hub-1';
 
 const randomToken = (prefix: string) => `${prefix}_${crypto.randomBytes(24).toString('base64url')}`;
@@ -162,6 +171,34 @@ export class FakeHub {
       sid: this.sessionRef(options),
     };
 
+    return this.sign(payload);
+  }
+
+  /** What the store gives a storefront script: who is shopping. The customer's id only with `storefront.customer`. */
+  shopperToken(options: ShopperTokenOptions): string {
+    const installation = this.findInstallation(options.appId, options.store);
+    const now = Math.floor(Date.now() / 1000);
+    const signedIn = options.customerId !== undefined && options.customerId !== null;
+
+    const payload: ShopperTokenPayload = {
+      iss: this.issuer,
+      aud: options.appId,
+      typ: 'shopper',
+      marketplace_id: installation?.marketplaceId ?? 0,
+      store_domain: options.store,
+      installation_id: installation?.installationId ?? 0,
+      signed_in: signedIn,
+      customer_id: signedIn && installation?.scopes.includes('storefront.customer') ? options.customerId! : null,
+      iat: now,
+      nbf: now,
+      exp: now + (options.ttlSeconds ?? SHOPPER_TOKEN_TTL_SECONDS),
+      jti: crypto.randomUUID(),
+    };
+
+    return this.sign(payload);
+  }
+
+  private sign(payload: object): string {
     const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
     const signingInput = `${encode({ alg: 'RS256', typ: 'JWT', kid: KEY_ID })}.${encode(payload)}`;
     const signature = crypto.createSign('RSA-SHA256').update(signingInput).sign(this.keys.privateKey).toString('base64url');

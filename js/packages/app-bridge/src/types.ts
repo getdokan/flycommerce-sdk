@@ -117,6 +117,63 @@ export interface ToastOptions {
   type?: 'success' | 'error' | 'warning' | 'info';
 }
 
+// The claims of a shopper token: who is shopping, for one app's storefront script to hand its server.
+export interface ShopperTokenPayload {
+  iss: string;
+  aud: string;
+  typ: 'shopper';
+  marketplace_id: number;
+  store_domain: string | null;
+  installation_id: number;
+  /** True only for a customer's own sign-in; store staff and support signed in as a customer are guests. */
+  signed_in: boolean;
+  /** The store's id for the customer, only when the merchant granted `storefront.customer`. */
+  customer_id: number | null;
+  iat: number;
+  nbf: number;
+  exp: number;
+  jti: string;
+}
+
+/** One line of the shopper's cart, as `cart.get` and `flycommerce:cart:updated` give it. */
+export interface CartLine {
+  productId: string;
+  variationId?: string;
+  name: string;
+  quantity: number;
+  unitPrice: number | null;
+  total: number | null;
+}
+
+/** The shopper's cart: never its id, nor anything about the customer. */
+export interface CartSummary {
+  lines: CartLine[];
+  count: number;
+  subtotal: number;
+}
+
+/** What each storefront action takes. Quantities are 1 to 10, and `cart.add` takes up to 10 lines. */
+export interface StorefrontActionInputs {
+  'cart.get': Record<string, never>;
+  'cart.add': { items: { productId: string; variationId?: string; quantity: number }[] };
+  'cart.update': { productId: string; variationId?: string; quantity: number };
+  'cart.remove': { productId: string; variationId?: string };
+  'nav.goto': { to: 'product' | 'collection' | 'category'; slug: string } | { to: 'cart' };
+  'ui.openCart': Record<string, never>;
+}
+
+export type StorefrontActionName = keyof StorefrontActionInputs;
+
+export type StorefrontActionResult = { ok: true; result: unknown } | { ok: false; error: string };
+
+export interface StorefrontActionInfo {
+  name: StorefrontActionName;
+  /** One sentence, written for an AI model choosing a tool. */
+  description: string;
+  /** Changes something the shopper owns: announced with Undo, and at most 10 a minute. */
+  changes: boolean;
+}
+
 /** `window.FlyCommerce` on a storefront page that runs an app's script. It holds nothing about the shopper. */
 export interface StorefrontContext {
   /** The store's domain, e.g. demo.flycom.shop. */
@@ -126,6 +183,12 @@ export interface StorefrontContext {
   currency: string;
   /** The kind of page the script loaded on, e.g. home, product or category. */
   pageType: string;
+  /** Does what the shopper could do with a click, through the store's own code. Absent on stores that predate it. */
+  run?<N extends StorefrontActionName>(name: N, input?: StorefrontActionInputs[N]): Promise<StorefrontActionResult>;
+  can?(name: string): boolean;
+  actions?(): StorefrontActionInfo[];
+  /** A 5-minute token naming the shopper to your server, or null when the store won't give your app one. */
+  shopperToken?(appId: string): Promise<string | null>;
 }
 
 /** The detail of `flycommerce:page`, dispatched on `window` after each client-side navigation. */

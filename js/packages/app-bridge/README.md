@@ -72,7 +72,17 @@ window.addEventListener('flycommerce:page', (event) => {
 });
 ```
 
-`StorefrontContext` is `{ store, locale, currency, pageType }`. It holds nothing about the shopper. `pageType` is the page the script loaded on; follow the event for later pages. The types are also exported from the main entry, without the global. See [`spec/storefront-scripts.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/storefront-scripts.md).
+On stores that support them, the script can also act for the shopper and learn who they are:
+
+```ts
+const added = await window.FlyCommerce?.run?.('cart.add', { items: [{ productId, quantity: 1 }] });
+if (added && !added.ok) showError(added.error); // the store's own message
+
+const token = await window.FlyCommerce?.shopperToken?.(APP_ID); // for your server; null if the store won't issue one
+window.addEventListener('flycommerce:cart:updated', (event) => updateBadge(event.detail.count));
+```
+
+`StorefrontContext` is `{ store, locale, currency, pageType }` plus the optional `run`, `can`, `actions` and `shopperToken`. It holds nothing about the shopper. `pageType` is the page the script loaded on; follow the event for later pages. The types are also exported from the main entry, without the global. See [`spec/storefront-scripts.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/storefront-scripts.md).
 
 ## On your server
 
@@ -85,7 +95,9 @@ const session = await verifySessionToken(token, { appId: process.env.APP_ID! });
 // session.store_domain and session.sub tell you which store and which user.
 ```
 
-`@flycommerce/app-server` wraps this together with the rest of what a server needs.
+A shopper token from a storefront script is verified the same way, with `verifyShopperToken(token, { appId })`: type `shopper`, 5 minutes, and `customer_id` only when the merchant granted `storefront.customer`.
+
+`@flycommerce/app-server` wraps both together with the rest of what a server needs.
 
 ## Security
 
