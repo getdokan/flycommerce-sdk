@@ -9,7 +9,7 @@
     {
       "name": "flycommerce-apps",
       "source": "./ai/claude/flycommerce-apps",
-      "description": "Build FlyCommerce apps that merchants install: installs, session tokens, dashboard pages, storefront scripts, store API calls, webhooks, private and listed apps, and developing and releasing with the flycommerce CLI. Brings in flycommerce-api and flycommerce-ui."
+      "description": "Build FlyCommerce apps that merchants install: installs, session tokens, dashboard pages, storefront scripts with cart actions and shopper tokens, store API calls, webhooks, private and listed apps, and developing and releasing with the flycommerce CLI. Brings in flycommerce-api and flycommerce-ui."
     },
     {
       "name": "flycommerce-api",
