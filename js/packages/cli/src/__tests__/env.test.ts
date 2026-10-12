@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
-import { parseEnv } from '../env.js';
+import { parseEnv, writeEnvValues } from '../env.js';
 import { FakePortal, runCli } from './fake-portal.js';
 
 describe('flycommerce env pull', () => {
@@ -85,6 +85,23 @@ describe('flycommerce env pull', () => {
     portal.environment = { ...portal.environment, allowedIssuers: ['https://hub.example.test'] };
   });
 
+  it("refuses what the portal sends when it isn't a plain http(s) URL, and writes nothing", async () => {
+    const good = portal.environment;
+    for (const bad of [
+      { ...good, hubApiUrl: 'https://x.test/api\nAPP_SECRET=stolen' },
+      { ...good, jwksUrl: 'file:///etc/passwd' },
+      { ...good, allowedIssuers: [] },
+      { ...good, frameAncestors: 'https://*.ok.test "quoted"' },
+    ]) {
+      portal.environment = bad;
+      const result = await cli('env', 'pull');
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /isn't a list of http\(s\) URLs, so nothing was written/);
+    }
+    portal.environment = good;
+    assert.equal(fs.existsSync(path.join(dir, '.env')), false);
+  });
+
   it('needs a sign-in', async () => {
     env = { XDG_CONFIG_HOME: dir };
     assert.match((await cli('env', 'pull')).stderr, /not signed in/);
@@ -97,5 +114,16 @@ describe('parseEnv', () => {
       parseEnv(['# comment', '', 'export A=1', 'B="two words"', "C='x # y'", 'D=plain # note', 'not a line', '#E=commented'].join('\n')),
       { A: '1', B: 'two words', C: 'x # y', D: 'plain' }
     );
+  });
+});
+
+describe('writeEnvValues', () => {
+  it('refuses a value with a line break or another control character, leaving the file as it was', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flycommerce-envfile-')), '.env');
+    fs.writeFileSync(file, 'KEEP=1\n');
+
+    assert.throws(() => writeEnvValues(file, { APP_SECRET: 'abc\nEVIL=1' }, 'x'), /line break or another control character/);
+    assert.throws(() => writeEnvValues(file, { APP_SECRET: 'abc\u0000' }, 'x'), /control character/);
+    assert.equal(fs.readFileSync(file, 'utf8'), 'KEEP=1\n');
   });
 });

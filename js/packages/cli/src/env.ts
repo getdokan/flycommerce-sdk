@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { Context } from './context.js';
+import { CliError, Context } from './context.js';
 import { PortalApi } from './portal.js';
 import { PlatformEnvironment } from './types.js';
 
@@ -46,8 +46,17 @@ export function readEnvFile(file: string): Record<string, string> | undefined {
   }
 }
 
+// A control character could end the line and start a key of its own.
+const CONTROL = /[\u0000-\u001f\u007f]/;
+// What the portal may send for the platform: plain http(s) URLs, nothing that could be read as more.
+const PLATFORM_URL = /^https?:\/\/[^\s"'`\\]+$/;
+
 /** Sets these keys in the file, keeping every other line; a new file is readable only by you, since it holds secrets. */
 export function writeEnvValues(file: string, values: Record<string, string>, heading: string): { created: boolean } {
+  for (const [key, value] of Object.entries(values)) {
+    if (CONTROL.test(value)) throw new CliError(`Refusing to write ${key}: its value has a line break or another control character.`);
+  }
+
   let lines: string[] = [];
   let created = false;
 
@@ -85,12 +94,22 @@ export function writeEnvValues(file: string, values: Record<string, string>, hea
   return { created };
 }
 
+function platformUrls(key: string, urls: unknown[]): string[] {
+  if (urls.length === 0 || !urls.every((url) => typeof url === 'string' && PLATFORM_URL.test(url))) {
+    throw new CliError(`The portal sent a ${key} that isn't a list of http(s) URLs, so nothing was written.`);
+  }
+  return urls as string[];
+}
+
+/** The four values, checked: they come from the network and end up in a file the app trusts. */
 export function platformValues(environment: PlatformEnvironment): Record<string, string> {
+  const ancestors = typeof environment.frameAncestors === 'string' ? environment.frameAncestors.split(' ').filter(Boolean) : [];
+
   return {
-    HUB_API_URL: environment.hubApiUrl,
-    JWKS_URL: environment.jwksUrl,
-    ALLOWED_ISSUERS: environment.allowedIssuers.join(','),
-    FRAME_ANCESTORS: environment.frameAncestors,
+    HUB_API_URL: platformUrls('HUB_API_URL', [environment.hubApiUrl])[0],
+    JWKS_URL: platformUrls('JWKS_URL', [environment.jwksUrl])[0],
+    ALLOWED_ISSUERS: platformUrls('ALLOWED_ISSUERS', Array.isArray(environment.allowedIssuers) ? environment.allowedIssuers : []).join(','),
+    FRAME_ANCESTORS: platformUrls('FRAME_ANCESTORS', ancestors).join(' '),
   };
 }
 

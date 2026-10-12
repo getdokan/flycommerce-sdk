@@ -129,8 +129,14 @@ export async function doctor(ctx: Context, portal: string): Promise<number> {
       add('warn', `${ENV_FILE}'s APP_ID matches none of the config files`, `Use the App ID from one of: ${[...appIds.keys()].join(', ')}`);
     }
 
-    if (environment) {
-      const expected = platformValues(environment);
+    let expected: Record<string, string> | undefined;
+    try {
+      expected = environment && platformValues(environment);
+    } catch (error) {
+      add('fail', (error as Error).message);
+    }
+
+    if (environment && expected) {
       // ALLOWED_ISSUERS is a list, comma- or space-separated, as @flycommerce/app-server reads it.
       const normal = (key: string, value: string) =>
         key === 'ALLOWED_ISSUERS'
@@ -141,7 +147,7 @@ export async function doctor(ctx: Context, portal: string): Promise<number> {
               .join(',')
           : value;
       const differ = ['HUB_API_URL', 'JWKS_URL', 'ALLOWED_ISSUERS'].filter(
-        (key) => env[key] !== undefined && normal(key, env[key]) !== normal(key, expected[key])
+        (key) => env[key] !== undefined && normal(key, env[key]) !== normal(key, expected![key])
       );
       if (differ.length > 0)
         add('fail', `${ENV_FILE}'s ${differ.join(', ')} point at another platform than ${portal}`, 'flycommerce env pull');
