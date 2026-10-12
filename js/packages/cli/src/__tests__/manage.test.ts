@@ -147,6 +147,16 @@ describe('flycommerce app create, status, open, secret and token', () => {
   });
 
   describe('app open', () => {
+    it("refuses a link that isn't an https URL, so nothing but a web page reaches the system's opener", async () => {
+      for (const bad of ['file:///System/Applications/Calculator.app', 'C:\\Windows\\System32\\calc.exe', 'javascript:alert(1)']) {
+        portal.statusUrls = { portal: bad };
+        const result = await cli(['app', 'open']);
+        assert.equal(result.code, 1, bad);
+      }
+      portal.statusUrls = undefined;
+      assert.deepEqual(opened, []);
+    });
+
     it("opens the app's portal page, or the one --page names", async () => {
       assert.equal((await cli(['app', 'open'])).code, 0);
       assert.equal((await cli(['app', 'open', '--page', 'install'])).code, 0);
@@ -191,7 +201,7 @@ describe('flycommerce app create, status, open, secret and token', () => {
 
       portal.requests.length = 0;
       assert.equal((await cli(['app', 'secret', 'rotate', '--yes'])).code, 0);
-      assert.deepEqual(posts(), [{}, { confirm: true }]);
+      assert.deepEqual(posts(), [{ confirm: true }]);
     });
 
     it('writes the new secret to .env with --write-env, keeping the other lines', async () => {
@@ -273,5 +283,61 @@ describe('flycommerce app create, status, open, secret and token', () => {
       assert.match((await cli(['init', '--help'])).stdout, /Usage: flycommerce app init/);
       assert.match((await cli(['init', 'one', 'two'])).stderr, /takes one directory, not one two/);
     });
+  });
+
+  describe('nothing lost or overwritten', () => {
+    it('checks the local files before creating, so a broken config or an unreadable .env creates nothing', async () => {
+      fs.writeFileSync(path.join(dir, 'app-config.json'), '{ broken');
+      assert.match((await cli(['app', 'create', '--name', 'Broken Link', '--dev'])).stderr, /app-config\.json is not valid JSON/);
+
+      fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(production));
+      fs.mkdirSync(path.join(dir, '.env'));
+      assert.match((await cli(['app', 'create', '--name', 'Env Dir', '--write-env'])).stderr, /Can't read \.env/);
+
+      assert.equal(portal.apiCalls().filter((call) => call.method === 'POST').length, 0);
+    });
+
+    it("refuses --write-env when .env holds another app's APP_ID, before anything changes on the portal", async () => {
+      fs.writeFileSync(path.join(dir, '.env'), 'APP_ID=production-app\nAPP_SECRET=keep-me\n');
+
+      const create = await cli(['app', 'create', '--name', 'Dev App', '--dev', '--write-env']);
+      assert.match(create.stderr, /already holds APP_ID production-app/);
+
+      portal.addApp({ appId: 'order-export', name: 'Order Export' });
+      const rotate = await cli(['app', 'secret', 'rotate', '--write-env']);
+      assert.match(rotate.stderr, /already holds APP_ID production-app/);
+
+      assert.equal(portal.apiCalls().filter((call) => call.method === 'POST').length, 0);
+      assert.equal(read('.env'), 'APP_ID=production-app\nAPP_SECRET=keep-me\n');
+    });
+
+    it('shows the secret when writing .env fails after the portal created it', async () => {
+      fs.writeFileSync(path.join(dir, '.env'), 'PORT=4000\n');
+      fs.chmodSync(path.join(dir, '.env'), 0o444);
+
+      const result = await cli(['app', 'create', '--name', 'Read Only Env', '--write-env']);
+
+      fs.chmodSync(path.join(dir, '.env'), 0o644);
+      assert.equal(result.code, 1);
+      assert.match(result.stdout, /The app secret, shown only now:\n {2}secret-\d+/);
+      assert.match(result.stderr, /Couldn't write \.env: .*The secret is above, shown this once/);
+    });
+
+    it('writes APP_ID with a rotated secret, and warns about a .env others can read', async () => {
+      portal.addApp({ appId: 'order-export', name: 'Order Export' });
+      fs.writeFileSync(path.join(dir, '.env'), 'PORT=4000\n', { mode: 0o644 });
+      fs.chmodSync(path.join(dir, '.env'), 0o644);
+
+      const result = await cli(['app', 'secret', 'rotate', '--write-env']);
+
+      assert.equal(result.code, 0, result.stderr);
+      assert.match(read('.env'), /APP_ID=order-export\nAPP_SECRET=secret-\d+\n/);
+      assert.match(result.stdout, /other users on this computer can read \.env \(mode 644\)/);
+    });
+  });
+
+  it('says to put the command first when an option comes before it', async () => {
+    const result = await runCli(['--portal', portal.url, 'app', 'list'], { env, cwd: dir });
+    assert.match(result.stderr, /Put the command first/);
   });
 });

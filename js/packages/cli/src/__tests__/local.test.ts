@@ -142,4 +142,71 @@ describe('flycommerce app dev --local', () => {
     assert.equal(code, 1);
     assert.match(stderr, /--scopes is for --local/);
   });
+
+  it('reports a server command that cannot start, without crashing', async () => {
+    const { done, output } = start(['--port', String(await freePort()), '--', 'definitely-not-a-command-xyz']);
+
+    assert.equal(await done, 1);
+    assert.match(output.stderr, /isn't installed or isn't on PATH/);
+  });
+
+  it('refuses a port something else already listens on, so the install code never reaches it', async () => {
+    const blocker = net.createServer().listen(0, '127.0.0.1');
+    await new Promise((resolve) => blocker.once('listening', resolve));
+    const { port } = blocker.address() as net.AddressInfo;
+
+    const { done, output, stop } = start(['--port', String(port), '--', ...server]);
+
+    try {
+      // Without the check the CLI keeps serving, so a time limit turns that into a failure, not a hang.
+      const code = await Promise.race([done, sleep(10_000).then(() => 'still running')]);
+      assert.equal(code, 1);
+      assert.match(output.stderr, new RegExp(`already listening on port ${port}`));
+      assert.equal(fs.existsSync(out), false);
+    } finally {
+      stop();
+      blocker.close();
+      await done;
+    }
+  });
+
+  it('finds a server listening on ::1, as localhost is on many computers', async (t) => {
+    const probe = net.createServer();
+    const ipv6 = await new Promise<boolean>((resolve) => {
+      probe.once('error', () => resolve(false));
+      probe.listen(0, '::1', () => resolve(true));
+    });
+    probe.close();
+    if (!ipv6) return t.skip('no IPv6 loopback here');
+
+    const port = await freePort();
+    const onV6 = server.map((part) => part.replace("'127.0.0.1'", "'::1'"));
+    const { done, output, stop } = start(['--port', String(port), '--', ...onV6]);
+
+    try {
+      await until(() => output.stdout.includes('Store API'));
+      assert.match(JSON.parse(fs.readFileSync(out, 'utf8')).callback, /code=/);
+    } finally {
+      stop();
+      await done;
+    }
+  });
+
+  it('moves same-host absolute URLs in the config onto this computer, as paths are', async () => {
+    fs.writeFileSync(
+      path.join(dir, 'app-config.json'),
+      JSON.stringify({
+        ...config,
+        install: { redirectUrl: 'https://export.example.com/auth/callback' },
+        storefront: { scripts: [{ handle: 'welcome', src: 'https://export.example.com/storefront/welcome.js' }] },
+      })
+    );
+    const port = await freePort();
+    const { done, output, stop } = start(['--port', String(port), '--', ...server]);
+
+    await until(() => output.stdout.includes('Store API'));
+    stop();
+    assert.equal(await done, 0, output.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).env.REDIRECT_URI, `http://localhost:${port}/auth/callback`);
+  });
 });

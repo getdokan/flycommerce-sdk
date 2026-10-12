@@ -69,7 +69,7 @@ flycommerce app dev --local                      # runs npm start
 flycommerce app dev --local -- npm run dev:server
 ```
 
-Nothing reaches FlyCommerce: no sign-in, portal or tunnel. `app dev --local` starts FlyCommerce's emulator (a hub, a store with a few products and orders, and a dashboard), runs your server with the emulator's `APP_ID`, `APP_SECRET`, `HUB_API_URL`, `JWKS_URL`, `ALLOWED_ISSUERS`, `STORE_BASE_URL` and `FRAME_ANCESTORS`, plus `APP_URL` (`http://localhost:<port>`), `REDIRECT_URI`, `PORT` and `APP_CONFIG_FILE` as `app dev` sets them. Once the server listens, it installs the app on the emulated store and prints the dashboard and storefront links. The emulator's values replace your real App ID and secret only for that process; `.env` is untouched, and anything else your server needs, like an encryption key, still comes from it.
+Nothing reaches FlyCommerce: no sign-in, portal or tunnel. `app dev --local` starts FlyCommerce's emulator (a hub, a store with a few products and orders, and a dashboard), runs your server with your config's `APP_ID` and the emulator's `APP_SECRET`, `HUB_API_URL`, `JWKS_URL`, `ALLOWED_ISSUERS`, `STORE_BASE_URL` and `FRAME_ANCESTORS`, plus `APP_URL` (`http://localhost:<port>`), `REDIRECT_URI`, `PORT` and `APP_CONFIG_FILE` as `app dev` sets them. Once the server listens, it installs the app on the emulated store and prints the dashboard and storefront links. The emulator's values replace your real secret and platform addresses only for that process; `.env` is untouched, and anything else your server needs, like an encryption key, still comes from it.
 
 The install grants every permission the emulator answers for (`catalog.read`, `orders.read`, `orders.write`, `webhooks.manage`, `storefront.scripts`, `storefront.customer`); `--scopes orders.read,catalog.read` grants fewer, to try what a merchant who grants less sees. Everything is in memory and starts fresh on each run. Ctrl+C stops your server and the emulator.
 
@@ -79,7 +79,7 @@ The install grants every permission the emulator answers for (`catalog.read`, `o
 flycommerce app create --name "Order Export (dev)" --dev --write-env
 ```
 
-`app create` creates an app in the developer portal. A new app is unpublished: it installs only on your own stores until FlyCommerce reviews and publishes it, so the same command makes a development app or the start of a production one. `--dev` links it in `app-config.dev.json` (`--config <name>` picks another file). The app secret is shown once; `--write-env` writes `APP_ID` and `APP_SECRET` to `.env` instead, so the secret never reaches your terminal, and a new `.env` is readable only by you. Without `--name` it asks, suggesting `package.json`'s name. Pick the app's category in the portal (or pass `--category <id>`) before you submit it for review.
+`app create` creates an app in the developer portal. A new app is unpublished: it installs only on your own stores until FlyCommerce reviews and publishes it, so the same command makes a development app or the start of a production one. `--dev` links it in `app-config.dev.json` (`--config <name>` picks another file). The app secret is shown once; `--write-env` writes `APP_ID` and `APP_SECRET` to `.env` instead, so the secret never reaches your terminal, and a new `.env` is readable only by you. It refuses a `.env` that already holds another `APP_ID`, before creating anything, rather than replace that app's credentials; if writing fails anyway, the secret is shown. Without `--name` it asks, suggesting `package.json`'s name. Pick the app's category in the portal (or pass `--category <id>`) before you submit it for review.
 
 ### Point your server at the platform
 
@@ -184,7 +184,7 @@ flycommerce app token revoke 12
 
 - `app status` shows the live and waiting versions, what waits for FlyCommerce's review, what the review checklist still needs, how many stores have the app (your own by name; a published app's merchants only as a count), the last dev push, and the portal and install links.
 - `app open` opens the app's portal page in your browser, and prints the link.
-- `app secret rotate` replaces the app secret; the old one stops working at once. A published app's live installs break until you deploy the new secret, so for one it asks first (`--yes` without a terminal). `--write-env` writes the new secret to `.env` instead of showing it.
+- `app secret rotate` replaces the app secret; the old one stops working at once. A published app's live installs break until you deploy the new secret, so for one it asks first (`--yes` without a terminal). `--write-env` writes the new secret, with `APP_ID`, to `.env` instead of showing it, and refuses a `.env` that holds another app's `APP_ID`.
 - `app token create` makes a deploy token for CI (30, 90 or 180 days, `--name` defaults to `CI`) and shows it once. `app token list` shows when each was made, expires and was last used, never the token. `app token revoke <id>` asks first (`--yes` without a terminal).
 
 Creating apps, rotating secrets and managing tokens need your own sign-in: a deploy token can't do them.
@@ -240,7 +240,7 @@ The tag it makes stays on the runner. Push it (`git push origin "app-v$VERSION"`
 - The token goes only to the portal, over `https` (plain `http` only to `localhost`), and never follows a redirect. It's never printed, put in a URL, or passed to the processes `app dev` starts.
 - Only an answer carrying the sign-in's `state` can end it; anything else that calls the loopback is answered `400` and ignored.
 - An app secret or deploy token is shown once, as the portal shows it; with `--write-env` a secret goes to `.env` and never reaches the terminal. A `.env` the CLI creates is readable only by you, and `doctor` never prints a value from it.
-- `app dev --local` gives your server the emulator's own App ID and secret, never your real ones.
+- `app dev --local` gives your server the emulator's own secret, never your real one, and installs the app only on a port nothing else is listening on, so the one-time install code reaches your server.
 - Everything the CLI prints, app names, titles and URLs from the portal included, is stripped of terminal escape sequences, control characters and bidi overrides.
 - Every request has a timeout.
 

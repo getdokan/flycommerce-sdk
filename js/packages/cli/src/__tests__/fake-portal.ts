@@ -60,6 +60,10 @@ export class FakePortal {
     portalUrl: 'https://developers.example.test',
   };
   readonly deployTokens = new Map<string, FakeDeployToken[]>();
+  /** The app deployToken belongs to: the hub lists only that app for it. */
+  deployTokenApp = 'order-export';
+  /** Replaces links in GET apps/{id}/status, as a hostile portal could. */
+  statusUrls?: Record<string, string>;
   private nextTokenId = 1;
   private secrets = 0;
   private issuedCode?: string;
@@ -156,7 +160,9 @@ export class FakePortal {
     if (req.method === 'GET' && path === 'apps') {
       return send(
         200,
-        [...this.apps.values()].map(({ appId, name, status, published }) => ({ appId, name, status, published }))
+        [...this.apps.values()]
+          .filter((app) => !deploy || app.appId === this.deployTokenApp)
+          .map(({ appId, name, status, published }) => ({ appId, name, status, published }))
       );
     }
 
@@ -212,6 +218,7 @@ export class FakePortal {
           versions: `${this.url}/apps/1/versions`,
           publishing: `${this.url}/apps/1/publishing`,
           installUrl: `${this.url}/install/${app.appId}`,
+          ...this.statusUrls,
         },
       });
     }

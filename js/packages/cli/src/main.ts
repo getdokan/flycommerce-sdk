@@ -149,8 +149,8 @@ Only for an unpublished app: link a development app with flycommerce app link --
 
 With --local, nothing reaches FlyCommerce: no sign-in, portal or tunnel. It starts FlyCommerce's
 emulator (a hub, a store with a few products and orders, and a dashboard), runs your server pointed
-at it with the emulator's APP_ID, APP_SECRET, HUB_API_URL, JWKS_URL, ALLOWED_ISSUERS, STORE_BASE_URL
-and FRAME_ANCESTORS, installs the app once the server listens, and prints the dashboard and
+at it with your config's APP_ID and the emulator's APP_SECRET, HUB_API_URL, JWKS_URL, ALLOWED_ISSUERS,
+STORE_BASE_URL and FRAME_ANCESTORS, installs the app once the server listens, and prints the dashboard and
 storefront links. Everything is in memory and starts fresh each run.
 
   --local             Run on the emulator instead of your store
@@ -311,6 +311,10 @@ async function dispatch(argv: string[], ctx: Context): Promise<number> {
   }
 
   const { name, words } = commandName(args);
+
+  if (name === '') {
+    throw new CliError(`Put the command first, then its options, like: flycommerce app list --portal <url>`);
+  }
 
   if (GROUPS.includes(name)) {
     ctx.stdout(HELP);

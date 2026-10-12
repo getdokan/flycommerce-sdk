@@ -41,6 +41,17 @@ function configFiles(cwd: string): string[] {
     .sort((a, b) => (a === 'app-config.json' ? -1 : b === 'app-config.json' ? 1 : a.localeCompare(b)));
 }
 
+/** The hub refuses a deploy token its app's token list, and says nothing else about which kind a token is. */
+async function refusesTokenList(api: PortalApi, appId: string): Promise<boolean> {
+  try {
+    await api.get(`apps/${encodeURIComponent(appId)}/tokens`);
+    return false;
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'token_not_allowed') return true;
+    throw error;
+  }
+}
+
 /** Checks the sign-in, the config files and .env; resolves to 1 when something must be fixed. */
 export async function doctor(ctx: Context, portal: string): Promise<number> {
   const checks: Check[] = [];
@@ -83,23 +94,21 @@ export async function doctor(ctx: Context, portal: string): Promise<number> {
     environment = await api.get<PlatformEnvironment>('me/environment');
 
     if (appIds.size > 0) {
-      let apps: AppSummary[] | undefined;
-      try {
-        apps = await api.get<AppSummary[]>('apps');
-      } catch (error) {
-        if (!(error instanceof ApiError) || error.status !== 403) throw error;
-        add(
-          'warn',
-          "This token can't list your apps, so which app each config uses wasn't checked",
-          'Sign in with flycommerce login to check it.'
-        );
-      }
+      const apps = await api.get<AppSummary[]>('apps');
+      // A deploy token sees only its own app, so another app missing from the list proves nothing.
+      const deployToken = api.usesEnvToken && apps.length > 0 && (await refusesTokenList(api, apps[0].appId));
+
       for (const [file, appId] of appIds) {
-        if (!apps) break;
         const app = apps.find((candidate) => candidate.appId === appId);
         const link = `flycommerce app link${file === 'app-config.json' ? '' : ` --config ${file.slice('app-config.'.length, -'.json'.length)}`}`;
 
-        if (!app) add('fail', `${file}: ${appId} isn't one of your apps on ${portal}`, link);
+        if (!app && deployToken) {
+          add(
+            'warn',
+            `${file}: ${appId} isn't visible with FLYCOMMERCE_TOKEN, a deploy token for another app`,
+            'Unset FLYCOMMERCE_TOKEN and sign in with flycommerce login to check it.'
+          );
+        } else if (!app) add('fail', `${file}: ${appId} isn't one of your apps on ${portal}`, link);
         else if (file !== 'app-config.json' && app.status !== 'unpublished')
           add(
             'warn',

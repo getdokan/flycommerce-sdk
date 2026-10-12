@@ -136,4 +136,13 @@ describe('flycommerce doctor', () => {
     assert.match(result.stdout, /✗ No \.env here/);
     assert.match(result.stdout, /✓ Node /);
   });
+
+  it("only warns about an app a deploy token can't see, since the hub lists only the token's own app", async () => {
+    write('app-config.dev.json', JSON.stringify({ ...config, appId: 'order-export-prod' }));
+
+    const result = await runCli(['doctor', '--portal', portal.url], { env: { ...env, FLYCOMMERCE_TOKEN: portal.deployToken }, cwd: dir });
+
+    assert.match(result.stdout, /! app-config\.dev\.json: order-export-prod isn't visible with FLYCOMMERCE_TOKEN/);
+    assert.doesNotMatch(result.stdout, /✗ app-config\.dev\.json/);
+  });
 });

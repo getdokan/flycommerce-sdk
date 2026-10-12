@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { configFileName, readConfigFile, writeAppId } from './config-file.js';
+import { checkWritable, configFileName, linkHint, readConfigFile, writeAppId } from './config-file.js';
 import { CliError, Context, confirmed } from './context.js';
-import { ENV_FILE, writeEnvValues } from './env.js';
+import { ENV_FILE, readEnvFile, writeEnvValues } from './env.js';
 import { ApiError, PortalApi } from './portal.js';
 import { AppStatusDetails, CreatedApp } from './types.js';
 
@@ -37,21 +37,56 @@ async function appName(ctx: Context, options: CreateOptions): Promise<string> {
   return answer || fallback || '';
 }
 
-/** Shows a secret once, or writes it to .env so it never reaches the terminal. */
-function handOver(ctx: Context, values: Record<string, string>, secretKey: string, writeEnv: boolean | undefined): void {
-  if (writeEnv) {
-    const { created } = writeEnvValues(path.join(ctx.cwd, ENV_FILE), values, 'From flycommerce');
-    ctx.stdout(`${created ? 'Created' : 'Updated'} ${ENV_FILE} with ${Object.keys(values).join(' and ')}.`);
-    return;
+const envPath = (ctx: Context) => path.join(ctx.cwd, ENV_FILE);
+
+/** Before anything changes on the portal: .env must be readable, and never hold another app's credentials. */
+function checkEnvFor(ctx: Context, appId: string | undefined): void {
+  let current: Record<string, string> | undefined;
+
+  try {
+    current = readEnvFile(envPath(ctx));
+  } catch (error) {
+    throw new CliError(`Can't read ${ENV_FILE}: ${(error as Error).message}. Leave out --write-env to see the secret instead.`);
   }
 
+  const held = current?.APP_ID;
+  if (held && held !== appId) {
+    throw new CliError(
+      `${ENV_FILE} already holds APP_ID ${held}, so --write-env would replace that app's credentials. Leave out --write-env to see the secret, or move those lines out of ${ENV_FILE} first.`
+    );
+  }
+}
+
+function showSecret(ctx: Context, secretKey: string, secret: string): void {
   ctx.stdout(
     [
       `The app secret, shown only now:`,
-      `  ${values[secretKey]}`,
+      `  ${secret}`,
       `Keep it as ${secretKey} in your server's .env, never in the repo. Lost it? flycommerce app secret rotate.`,
     ].join('\n')
   );
+}
+
+function warnIfShared(ctx: Context): void {
+  if (process.platform === 'win32') return;
+  const mode = fs.statSync(envPath(ctx)).mode & 0o777;
+  if (mode & 0o077) {
+    ctx.stdout(`Note: other users on this computer can read ${ENV_FILE} (mode ${mode.toString(8)}). Run: chmod 600 ${ENV_FILE}`);
+  }
+}
+
+/** Shows a secret once, or writes it to .env so it never reaches the terminal; a failed write still shows it, since it can't be fetched again. */
+function handOver(ctx: Context, values: Record<string, string>, secretKey: string, writeEnv: boolean | undefined): void {
+  if (!writeEnv) return showSecret(ctx, secretKey, values[secretKey]);
+
+  try {
+    const { created } = writeEnvValues(envPath(ctx), values, 'From flycommerce');
+    ctx.stdout(`${created ? 'Created' : 'Updated'} ${ENV_FILE} with ${Object.keys(values).join(' and ')}.`);
+    warnIfShared(ctx);
+  } catch (error) {
+    showSecret(ctx, secretKey, values[secretKey]);
+    throw new CliError(`Couldn't write ${ENV_FILE}: ${(error as Error).message}. The secret is above, shown this once.`);
+  }
 }
 
 export async function createApp(ctx: Context, portal: string, options: CreateOptions): Promise<void> {
@@ -68,6 +103,10 @@ export async function createApp(ctx: Context, portal: string, options: CreateOpt
   const name = await appName(ctx, options);
   if (name.length < 3) throw new CliError('The app name needs at least 3 characters.');
 
+  // Checked before the portal call: the secret it returns can't be fetched again.
+  if (linkTo !== undefined) checkWritable(ctx, linkTo);
+  if (options.writeEnv) checkEnvFor(ctx, undefined);
+
   const api = PortalApi.signedIn(portal, ctx);
   const created = await api.post<CreatedApp>('apps', {
     name,
@@ -78,8 +117,15 @@ export async function createApp(ctx: Context, portal: string, options: CreateOpt
   ctx.stdout(`Created ${created.name} (${created.appId}), ${created.status}: it installs only on your own stores until you publish it.`);
 
   if (linkTo !== undefined) {
-    const { fileName, created: newFile } = writeAppId(ctx, linkTo, created.appId);
-    ctx.stdout(`${newFile ? 'Created' : 'Updated'} ${fileName}: appId is ${created.appId}.`);
+    try {
+      const { fileName, created: newFile } = writeAppId(ctx, linkTo, created.appId);
+      ctx.stdout(`${newFile ? 'Created' : 'Updated'} ${fileName}: appId is ${created.appId}.`);
+    } catch (error) {
+      showSecret(ctx, 'APP_SECRET', created.secret);
+      throw new CliError(
+        `Couldn't link ${created.appId}: ${(error as Error).message}. The secret is above, shown this once; link it with ${linkHint(linkTo)} --app ${created.appId}.`
+      );
+    }
   }
 
   handOver(ctx, { APP_ID: created.appId, APP_SECRET: created.secret }, 'APP_SECRET', options.writeEnv);
@@ -134,10 +180,27 @@ export async function openApp(ctx: Context, portal: string, options: { config?: 
 
   const { appId } = readConfigFile(ctx, options.config);
   const { urls } = await PortalApi.signedIn(portal, ctx).get<AppStatusDetails>(`${appPath(appId)}/status`);
-  const url = page === 'install' ? urls.installUrl : urls[page];
+  const url = openable(page === 'install' ? urls.installUrl : urls[page], portal);
 
   ctx.stdout(`Opening ${url}`);
   ctx.openUrl(url);
+}
+
+/** Only a web link reaches the system's opener, which would run a file: or program path too. */
+function openable(url: string, portal: string): string {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new CliError("The portal sent a link that isn't a URL, so it wasn't opened.");
+  }
+
+  // http only when the portal itself is on this computer, which portalUrl allows.
+  const allowed = parsed.protocol === 'https:' || (parsed.protocol === 'http:' && new URL(portal).protocol === 'http:');
+  if (!allowed) throw new CliError(`The portal sent a ${parsed.protocol} link, so it wasn't opened: only https links open.`);
+
+  return parsed.href;
 }
 
 export async function rotateSecret(
@@ -146,11 +209,14 @@ export async function rotateSecret(
   options: { config?: string; yes?: boolean; writeEnv?: boolean }
 ): Promise<void> {
   const { appId } = readConfigFile(ctx, options.config);
+  if (options.writeEnv) checkEnvFor(ctx, appId);
+
   const api = PortalApi.signedIn(portal, ctx);
   let secret: string;
 
   try {
-    ({ secret } = await api.post<{ secret: string }>(`${appPath(appId)}/secret`, {}));
+    // With --yes the hub's confirmation goes in the first request: each rotation counts against an hourly limit.
+    ({ secret } = await api.post<{ secret: string }>(`${appPath(appId)}/secret`, options.yes ? { confirm: true } : {}));
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== 'confirm_required') throw error;
 
@@ -165,5 +231,5 @@ export async function rotateSecret(
   }
 
   ctx.stdout(`Rotated ${appId}'s secret. The old one stopped working.`);
-  handOver(ctx, { APP_SECRET: secret }, 'APP_SECRET', options.writeEnv);
+  handOver(ctx, { APP_ID: appId, APP_SECRET: secret }, 'APP_SECRET', options.writeEnv);
 }

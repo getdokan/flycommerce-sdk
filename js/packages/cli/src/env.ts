@@ -33,8 +33,12 @@ function unquote(raw: string): string {
   return value.replace(/\s+#.*$/, '');
 }
 
-function quoted(value: string): string {
-  return /^[A-Za-z0-9_./:@*,+-]*$/.test(value) ? value : JSON.stringify(value);
+// Single quotes keep a value exactly as Node's loadEnvFile (which app-server uses) reads it back.
+function quoted(key: string, value: string): string {
+  if (/^[A-Za-z0-9_./:@*,+-]*$/.test(value)) return value;
+  if (!value.includes("'")) return `'${value}'`;
+  if (!value.includes('"') && !value.includes('\\')) return `"${value}"`;
+  throw new CliError(`Refusing to write ${key}: its value holds both kinds of quote, which a .env file can't keep as written.`);
 }
 
 export function readEnvFile(file: string): Record<string, string> | undefined {
@@ -59,12 +63,12 @@ export function writeEnvValues(file: string, values: Record<string, string>, hea
 
   let lines: string[] = [];
   let created = false;
+  let eol = '\n';
 
   try {
-    lines = fs
-      .readFileSync(file, 'utf8')
-      .replace(/\r?\n$/, '')
-      .split(/\r?\n/);
+    const text = fs.readFileSync(file, 'utf8');
+    if (text.includes('\r\n')) eol = '\r\n';
+    lines = text.replace(/\r?\n$/, '').split(/\r?\n/);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     created = true;
@@ -76,10 +80,11 @@ export function writeEnvValues(file: string, values: Record<string, string>, hea
   for (const line of lines) {
     const key = line.trimStart().startsWith('#') ? undefined : LINE.exec(line)?.[1];
 
-    if (key === undefined || !(key in values)) {
+    if (key === undefined || !Object.hasOwn(values, key)) {
       kept.push(line);
     } else if (pending.has(key)) {
-      kept.push(`${key}=${quoted(values[key])}`);
+      const exported = /^\s*export\s+/.exec(line)?.[0] ?? '';
+      kept.push(`${exported}${key}=${quoted(key, values[key])}`);
       pending.delete(key);
     }
     // A key set twice keeps only its first line: the one now written.
@@ -87,10 +92,10 @@ export function writeEnvValues(file: string, values: Record<string, string>, hea
 
   if (pending.size > 0) {
     if (kept.length > 0 && kept[kept.length - 1].trim() !== '') kept.push('');
-    kept.push(`# ${heading}`, ...[...pending].map(([key, value]) => `${key}=${quoted(value)}`));
+    kept.push(`# ${heading}`, ...[...pending].map(([key, value]) => `${key}=${quoted(key, value)}`));
   }
 
-  fs.writeFileSync(file, kept.join('\n') + '\n', created ? { mode: 0o600, flag: 'wx' } : {});
+  fs.writeFileSync(file, kept.join(eol) + eol, created ? { mode: 0o600, flag: 'wx' } : {});
   return { created };
 }
 

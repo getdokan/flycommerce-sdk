@@ -35,7 +35,7 @@ describe('flycommerce env pull', () => {
         'HUB_API_URL=https://developers.example.test/api',
         'JWKS_URL=https://hub.example.test/.well-known/jwks.json',
         'ALLOWED_ISSUERS=https://hub.example.test',
-        'FRAME_ANCESTORS="https://*.example.shop https://*.example.test"',
+        "FRAME_ANCESTORS='https://*.example.shop https://*.example.test'",
         '',
       ].join('\n')
     );
@@ -69,7 +69,7 @@ describe('flycommerce env pull', () => {
         '# The platform behind https://developers.example.test, from flycommerce env pull',
         'JWKS_URL=https://hub.example.test/.well-known/jwks.json',
         'ALLOWED_ISSUERS=https://hub.example.test',
-        'FRAME_ANCESTORS="https://*.example.shop https://*.example.test"',
+        "FRAME_ANCESTORS='https://*.example.shop https://*.example.test'",
         '',
       ].join('\n')
     );
@@ -125,5 +125,33 @@ describe('writeEnvValues', () => {
     assert.throws(() => writeEnvValues(file, { APP_SECRET: 'abc\nEVIL=1' }, 'x'), /line break or another control character/);
     assert.throws(() => writeEnvValues(file, { APP_SECRET: 'abc\u0000' }, 'x'), /control character/);
     assert.equal(fs.readFileSync(file, 'utf8'), 'KEEP=1\n');
+  });
+});
+
+describe('writeEnvValues keeps the file as it was written', () => {
+  const file = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flycommerce-envkeep-')), '.env');
+
+  it("keeps lines whose keys are an object's own names, export prefixes and CRLF line endings", () => {
+    const at = file();
+    fs.writeFileSync(at, 'constructor=keepme\r\ntoString=x\r\nexport APP_SECRET=old\r\n');
+
+    writeEnvValues(at, { APP_SECRET: 'new' }, 'x');
+
+    assert.equal(fs.readFileSync(at, 'utf8'), 'constructor=keepme\r\ntoString=x\r\nexport APP_SECRET=new\r\n');
+  });
+
+  it("quotes a value so Node's own loader reads it back as written, and refuses one it can't keep", () => {
+    const at = file();
+    const values = { SPACED: 'a b', QUOTED: `it's "fine"`.replace('"fine"', 'fine'), BACKSLASH: 'a\\b c' };
+
+    writeEnvValues(at, values, 'x');
+    const loaded: Record<string, string | undefined> = {};
+    const before = { ...process.env };
+    process.loadEnvFile(at);
+    for (const key of Object.keys(values)) loaded[key] = process.env[key];
+    for (const key of Object.keys(values)) if (!(key in before)) delete process.env[key];
+
+    assert.deepEqual(loaded, values);
+    assert.throws(() => writeEnvValues(at, { BOTH: `'a' "b"` }, 'x'), /both kinds of quote/);
   });
 });
