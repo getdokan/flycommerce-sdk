@@ -47,8 +47,8 @@ async function refusesTokenList(api: PortalApi, appId: string): Promise<boolean>
     await api.get(`apps/${encodeURIComponent(appId)}/tokens`);
     return false;
   } catch (error) {
-    if (error instanceof ApiError && error.code === 'token_not_allowed') return true;
-    throw error;
+    // Anything else (a rate limit, say) leaves the kind unknown: treat it as a CLI token, so missing apps still fail.
+    return error instanceof ApiError && error.code === 'token_not_allowed';
   }
 }
 

@@ -152,6 +152,6 @@ describe('writeEnvValues keeps the file as it was written', () => {
     for (const key of Object.keys(values)) if (!(key in before)) delete process.env[key];
 
     assert.deepEqual(loaded, values);
-    assert.throws(() => writeEnvValues(at, { BOTH: `'a' "b"` }, 'x'), /both kinds of quote/);
+    assert.throws(() => writeEnvValues(at, { BOTH: `'a' "b"` }, 'x'), /holds a ' together with a " or a backslash/);
   });
 });

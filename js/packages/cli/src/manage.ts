@@ -50,9 +50,10 @@ function checkEnvFor(ctx: Context, appId: string | undefined): void {
   }
 
   const held = current?.APP_ID;
-  if (held && held !== appId) {
+  // A secret with no APP_ID beside it could be any app's.
+  if ((held && held !== appId) || (!held && current?.APP_SECRET)) {
     throw new CliError(
-      `${ENV_FILE} already holds APP_ID ${held}, so --write-env would replace that app's credentials. Leave out --write-env to see the secret, or move those lines out of ${ENV_FILE} first.`
+      `${ENV_FILE} already holds ${held ? `APP_ID ${held}` : 'an APP_SECRET with no APP_ID'}, so --write-env would replace that app's credentials. Leave out --write-env to see the secret, or move those lines out of ${ENV_FILE} first.`
     );
   }
 }

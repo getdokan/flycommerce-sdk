@@ -38,7 +38,9 @@ function quoted(key: string, value: string): string {
   if (/^[A-Za-z0-9_./:@*,+-]*$/.test(value)) return value;
   if (!value.includes("'")) return `'${value}'`;
   if (!value.includes('"') && !value.includes('\\')) return `"${value}"`;
-  throw new CliError(`Refusing to write ${key}: its value holds both kinds of quote, which a .env file can't keep as written.`);
+  throw new CliError(
+    `Refusing to write ${key}: its value holds a ' together with a " or a backslash, which a .env file can't keep as written.`
+  );
 }
 
 export function readEnvFile(file: string): Record<string, string> | undefined {

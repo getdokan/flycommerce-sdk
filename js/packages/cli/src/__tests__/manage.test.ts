@@ -61,7 +61,7 @@ describe('flycommerce app create, status, open, secret and token', () => {
     });
 
     it('writes APP_ID and APP_SECRET to .env with --write-env, and never prints the secret', async () => {
-      fs.writeFileSync(path.join(dir, '.env'), '# mine\nENCRYPTION_KEY=keep-me\nAPP_SECRET=old\n');
+      fs.writeFileSync(path.join(dir, '.env'), '# mine\nENCRYPTION_KEY=keep-me\n');
 
       const result = await cli(['app', 'create', '--name', 'Order Export (dev)', '--dev', '--write-env']);
 
@@ -69,8 +69,7 @@ describe('flycommerce app create, status, open, secret and token', () => {
       assert.doesNotMatch(result.stdout, /secret-\d/);
       assert.match(result.stdout, /Updated \.env with APP_ID and APP_SECRET/);
       const text = read('.env');
-      assert.match(text, /^# mine\nENCRYPTION_KEY=keep-me\nAPP_SECRET=secret-\d+\n/);
-      assert.match(text, /APP_ID=app\d{4}\n/);
+      assert.match(text, /^# mine\nENCRYPTION_KEY=keep-me\n\n# From flycommerce\nAPP_ID=app\d{4}\nAPP_SECRET=secret-\d+\n$/);
     });
 
     it('creates a new .env readable only by you', async () => {
@@ -309,6 +308,13 @@ describe('flycommerce app create, status, open, secret and token', () => {
 
       assert.equal(portal.apiCalls().filter((call) => call.method === 'POST').length, 0);
       assert.equal(read('.env'), 'APP_ID=production-app\nAPP_SECRET=keep-me\n');
+    });
+
+    it("refuses --write-env when .env holds an APP_SECRET with no APP_ID, which could be any app's", async () => {
+      fs.writeFileSync(path.join(dir, '.env'), 'APP_SECRET=whose-is-this\n');
+
+      assert.match((await cli(['app', 'create', '--name', 'Orphan Secret', '--write-env'])).stderr, /an APP_SECRET with no APP_ID/);
+      assert.equal(portal.apiCalls().filter((call) => call.method === 'POST').length, 0);
     });
 
     it('shows the secret when writing .env fails after the portal created it', async () => {
