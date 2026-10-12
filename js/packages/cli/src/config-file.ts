@@ -109,3 +109,17 @@ export function writeAppId(ctx: Context, name: string | undefined, appId: string
   fs.writeFileSync(file, JSON.stringify(contents, null, 2) + '\n', { flag: 'wx' });
   return { fileName, created: true };
 }
+
+/** Throws now if writeAppId would fail later: the files it reads must parse. */
+export function checkWritable(ctx: Context, name: string | undefined): void {
+  const fileName = configFileName(name);
+  const text = readIfPresent(path.join(ctx.cwd, fileName));
+
+  if (text !== undefined) {
+    parseJsonObject(path.join(ctx.cwd, fileName), text);
+  } else if (name !== undefined) {
+    const production = path.join(ctx.cwd, 'app-config.json');
+    const productionText = readIfPresent(production);
+    if (productionText !== undefined) parseJsonObject(production, productionText);
+  }
+}

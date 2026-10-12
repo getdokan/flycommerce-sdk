@@ -65,3 +65,51 @@ export interface SubmitResult {
   status: AppStatus;
   submittedAt: string | null;
 }
+
+export interface CreatedApp {
+  appId: string;
+  name: string;
+  status: AppStatus;
+  /** Shown once: only its hash is kept. */
+  secret: string;
+}
+
+export interface AppStatusDetails {
+  appId: string;
+  name: string;
+  status: AppStatus;
+  published: boolean;
+  liveVersion: { versionId: number; version: string; releasedAt: string | null } | null;
+  waitingVersion: { versionId: number; version: string } | null;
+  awaitingReview: string[];
+  checklist: { ready: boolean; outstanding: string[] };
+  /** stores is null for a published app: merchants' stores are theirs to disclose. */
+  installs: { active: number; stores: { host: string | null; installedAt: string | null }[] | null };
+  devPushedAt: string | null;
+  urls: { portal: string; versions: string; publishing: string; installUrl: string };
+}
+
+export interface DeployToken {
+  id: number;
+  name: string;
+  createdAt: string | null;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+}
+
+export interface CreatedDeployToken {
+  /** Shown once. */
+  token: string;
+  name: string;
+  expiresAt: string | null;
+}
+
+/** The platform an app's server talks to, from the portal the CLI is signed in to. */
+export interface PlatformEnvironment {
+  hubApiUrl: string;
+  jwksUrl: string;
+  allowedIssuers: string[];
+  /** Space-separated, as FRAME_ANCESTORS takes it. */
+  frameAncestors: string;
+  portalUrl: string;
+}

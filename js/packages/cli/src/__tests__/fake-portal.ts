@@ -12,6 +12,16 @@ export interface FakeApp {
   versions: { versionId: number; version: string; title: string; releasedAt: string | null }[];
   checklist: { key: string; label: string; hint: string; done: boolean; fixUrl: string }[];
   submittedAt: string | null;
+  installs: { host: string; installedAt: string }[];
+  devPushedAt: string | null;
+}
+
+export interface FakeDeployToken {
+  id: number;
+  name: string;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt: string | null;
 }
 
 export interface RecordedRequest {
@@ -41,6 +51,21 @@ export class FakePortal {
   devPushAnswer: { reinstallRequired: boolean; message?: string; redirectUrl?: string | null } = { reinstallRequired: false };
   /** Answers every API call with a redirect here, as a misconfigured host or a sign-in page would. */
   redirectTo?: string;
+  /** What GET me/environment answers: the platform behind this portal. */
+  environment = {
+    hubApiUrl: 'https://developers.example.test/api',
+    jwksUrl: 'https://hub.example.test/.well-known/jwks.json',
+    allowedIssuers: ['https://hub.example.test'],
+    frameAncestors: 'https://*.example.shop https://*.example.test',
+    portalUrl: 'https://developers.example.test',
+  };
+  readonly deployTokens = new Map<string, FakeDeployToken[]>();
+  /** The app deployToken belongs to: the hub lists only that app for it. */
+  deployTokenApp = 'order-export';
+  /** Replaces links in GET apps/{id}/status, as a hostile portal could. */
+  statusUrls?: Record<string, string>;
+  private nextTokenId = 1;
+  private secrets = 0;
   private issuedCode?: string;
   private server!: http.Server;
   url = '';
@@ -71,6 +96,8 @@ export class FakePortal {
       versions: [],
       checklist: [],
       submittedAt: null,
+      installs: [],
+      devPushedAt: null,
       ...app,
     };
     this.apps.set(app.appId, full);
@@ -133,12 +160,113 @@ export class FakePortal {
     if (req.method === 'GET' && path === 'apps') {
       return send(
         200,
-        [...this.apps.values()].map(({ appId, name, status, published }) => ({ appId, name, status, published }))
+        [...this.apps.values()]
+          .filter((app) => !deploy || app.appId === this.deployTokenApp)
+          .map(({ appId, name, status, published }) => ({ appId, name, status, published }))
       );
+    }
+
+    const notAllowed = (message: string) => send(403, { error: 'token_not_allowed', message });
+
+    if (req.method === 'GET' && path === 'me/environment') return send(200, this.environment);
+
+    if (req.method === 'POST' && path === 'apps') {
+      if (deploy)
+        return notAllowed(
+          'A deploy token only releases versions; creating an app is for a person. Sign in with flycommerce login for that.'
+        );
+      const name = typeof body?.name === 'string' ? body.name : '';
+      if (name.length < 3) {
+        return send(422, {
+          error: 'invalid_request',
+          message: 'The name field must be at least 3 characters.',
+          problems: ['name: The name field must be at least 3 characters.'],
+        });
+      }
+      if ([...this.apps.values()].some((candidate) => candidate.name === name)) {
+        return send(422, {
+          error: 'invalid_request',
+          message: 'The name has already been taken.',
+          problems: ['name: The name has already been taken.'],
+        });
+      }
+      const appId = `app${String(this.apps.size + 1).padStart(4, '0')}`;
+      this.addApp({ appId, name });
+      return send(201, { appId, name, status: 'unpublished', secret: `secret-${++this.secrets}` });
     }
 
     const app = parts[0] === 'apps' ? this.apps.get(parts[1]) : undefined;
     if (!app) return send(404, { error: 'app_not_found', message: `There's no app ${parts[1]} on your account.` });
+
+    if (req.method === 'GET' && parts.length === 3 && parts[2] === 'status') {
+      const released = app.versions.filter((version) => version.releasedAt).sort((a, b) => b.versionId - a.versionId)[0];
+      const waiting = app.versions.find((version) => version.releasedAt === null);
+      const outstanding = app.checklist.filter((item) => !item.done).map((item) => item.key);
+      return send(200, {
+        appId: app.appId,
+        name: app.name,
+        status: app.status,
+        published: app.status === 'published',
+        liveVersion: released ? { versionId: released.versionId, version: released.version, releasedAt: released.releasedAt } : null,
+        waitingVersion: waiting ? { versionId: waiting.versionId, version: waiting.version } : null,
+        awaitingReview: [],
+        checklist: { ready: outstanding.length === 0, outstanding },
+        installs: { active: app.installs.length, stores: app.status === 'published' ? null : app.installs },
+        devPushedAt: app.devPushedAt,
+        urls: {
+          portal: `${this.url}/apps/1`,
+          versions: `${this.url}/apps/1/versions`,
+          publishing: `${this.url}/apps/1/publishing`,
+          installUrl: `${this.url}/install/${app.appId}`,
+          ...this.statusUrls,
+        },
+      });
+    }
+
+    if (req.method === 'POST' && parts.length === 3 && parts[2] === 'secret') {
+      if (deploy) return notAllowed('A deploy token only releases versions. Sign in with flycommerce login for that.');
+      if (app.status === 'published' && body?.confirm !== true) {
+        return send(409, {
+          error: 'confirm_required',
+          message: "Rotating a published app's secret breaks its live installs until you deploy the new one. Pass confirm: true.",
+        });
+      }
+      return send(200, { secret: `secret-${++this.secrets}` });
+    }
+
+    if (parts[2] === 'tokens') {
+      if (deploy) return notAllowed("A deploy token can't manage deploy tokens. Sign in with flycommerce login for that.");
+      const tokens = this.deployTokens.get(app.appId) ?? [];
+      this.deployTokens.set(app.appId, tokens);
+
+      if (req.method === 'GET' && parts.length === 3) return send(200, [...tokens].reverse());
+      if (req.method === 'POST' && parts.length === 3) {
+        if (typeof body?.name !== 'string' || body.name === '' || body.name.length > 60 || ![30, 90, 180].includes(body?.expiresInDays)) {
+          return send(422, {
+            error: 'invalid_request',
+            message: 'The given data was invalid.',
+            problems: ['expiresInDays: The selected expires in days is invalid.'],
+          });
+        }
+        const token: FakeDeployToken = {
+          id: this.nextTokenId++,
+          name: body.name,
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + body.expiresInDays * 86400_000).toISOString(),
+          lastUsedAt: null,
+        };
+        tokens.push(token);
+        return send(201, { token: `flyc_deploy_${token.id}`, name: token.name, expiresAt: token.expiresAt });
+      }
+      if (req.method === 'DELETE' && parts.length === 4) {
+        const index = tokens.findIndex((token) => token.id === Number(parts[3]));
+        if (index === -1) return send(404, { error: 'token_not_found', message: `${app.name} has no deploy token ${parts[3]}.` });
+        tokens.splice(index, 1);
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+    }
 
     if (req.method === 'GET' && parts.length === 2) {
       const versions = [...app.versions].sort((a, b) => b.versionId - a.versionId);
