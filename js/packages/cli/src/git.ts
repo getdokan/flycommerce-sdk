@@ -105,3 +105,20 @@ export function shallowClone(url: string, dir: string, env: NodeJS.ProcessEnv): 
     { timeout: CLONE_TIMEOUT_MS }
   );
 }
+
+/** Whether git ignores the file; undefined outside a repository or without git. */
+export function isIgnored(cwd: string, env: NodeJS.ProcessEnv, file: string): boolean | undefined {
+  const at = { cwd, env };
+
+  try {
+    git(at, ['rev-parse', '--is-inside-work-tree']);
+  } catch {
+    return undefined;
+  }
+  try {
+    git(at, ['check-ignore', '--quiet', '--', file]);
+    return true;
+  } catch {
+    return false;
+  }
+}

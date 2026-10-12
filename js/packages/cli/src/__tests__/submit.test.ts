@@ -231,6 +231,6 @@ describe('flycommerce app submit', () => {
 
     assert.equal(help.code, 0);
     assert.match(help.stdout, /Usage: flycommerce app submit \[--config <name>\] \[--notes <text>\] \[--yes\]/);
-    assert.match((await runCli(['--help'], { env, cwd: dir })).stdout, /app submit {7}Check the review checklist/);
+    assert.match((await runCli(['--help'], { env, cwd: dir })).stdout, /app submit {9}Check the review checklist/);
   });
 });

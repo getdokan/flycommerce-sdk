@@ -1,6 +1,6 @@
 # @flycommerce/cli
 
-The FlyCommerce command line, `flycommerce`: start an app from an example, sign in to the developer portal, link `app-config.json` to an app, run a development app on your own store through a tunnel, release versions with changelogs written from your commits, and submit the app for review.
+The FlyCommerce command line, `flycommerce`: start an app from an example, create it in the developer portal, point its server at the platform, run it on FlyCommerce's emulator or on your own store through a tunnel, check your setup, release versions with changelogs written from your commits, manage its secret and deploy tokens, and submit it for review.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/getdokan/flycommerce-sdk/blob/main/LICENSE)
 
@@ -13,7 +13,7 @@ npm install --save-dev @flycommerce/cli
 npx flycommerce --help
 ```
 
-Node 22 or later. No dependencies beyond `@flycommerce/app-server`, which checks `app-config.json` the way FlyCommerce does.
+Node 22 or later. Its only dependencies are FlyCommerce's own: `@flycommerce/app-server`, which checks `app-config.json` the way FlyCommerce does, and `@flycommerce/app-emulator`, for `app dev --local`.
 
 ## One app per environment
 
@@ -26,18 +26,26 @@ The two files differ only in `appId`, and `appUrl` is the only thing that differ
 
 ## Commands
 
-| Command                                                                                     | Does                                                                     |
-| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `flycommerce login`                                                                         | Signs in to the developer portal in your browser.                        |
-| `flycommerce logout`                                                                        | Forgets this computer's sign-in.                                         |
-| `flycommerce whoami`                                                                        | Shows who you're signed in as.                                           |
-| `flycommerce app init [<directory>] [--template <name>]`                                    | Copies one of FlyCommerce's example apps into a new directory.           |
-| `flycommerce app list`                                                                      | Lists your apps.                                                         |
-| `flycommerce app link [--config <name>] [--app <appId>]`                                    | Writes an app's ID into `app-config.json`, or `app-config.<name>.json`.  |
-| `flycommerce app dev [--config <name>] [--port <port>] [--tunnel-url <url>] [-- <command>]` | Runs a development app on your store through a tunnel to this computer.  |
-| `flycommerce app release [--dry-run] [--yes] [--version <x.y.z>] [--message <text>] […]`    | Works out the version and changelog from your commits, then releases it. |
-| `flycommerce app versions [--config <name>]`                                                | Lists the app's versions and which one is live.                          |
-| `flycommerce app submit [--config <name>] [--notes <text>] [--yes]`                         | Shows the review checklist and submits the app for FlyCommerce's review. |
+| Command                                                                                     | Does                                                                                                |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `flycommerce login`                                                                         | Signs in to the developer portal in your browser.                                                   |
+| `flycommerce logout`                                                                        | Forgets this computer's sign-in.                                                                    |
+| `flycommerce whoami`                                                                        | Shows who you're signed in as.                                                                      |
+| `flycommerce doctor`                                                                        | Checks your sign-in, config files and `.env`, and says how to fix each problem.                     |
+| `flycommerce env pull [--file <path>]`                                                      | Writes the platform's `HUB_API_URL`, `JWKS_URL`, `ALLOWED_ISSUERS` and `FRAME_ANCESTORS` to `.env`. |
+| `flycommerce app init [<directory>] [--template <name>]` (or `flycommerce init`)            | Copies one of FlyCommerce's example apps into a new directory.                                      |
+| `flycommerce app create [--name <name>] [--dev] [--write-env]`                              | Creates an app in the portal and shows its secret once.                                             |
+| `flycommerce app list`                                                                      | Lists your apps.                                                                                    |
+| `flycommerce app link [--config <name>] [--app <appId>]`                                    | Writes an app's ID into `app-config.json`, or `app-config.<name>.json`.                             |
+| `flycommerce app dev --local [--port <port>] [--scopes <list>] [-- <command>]`              | Runs your app on FlyCommerce's emulator: no account, portal or tunnel.                              |
+| `flycommerce app dev [--config <name>] [--port <port>] [--tunnel-url <url>] [-- <command>]` | Runs a development app on your store through a tunnel to this computer.                             |
+| `flycommerce app status [--config <name>]`                                                  | Shows the live and waiting versions, what waits for review, the checklist and installs.             |
+| `flycommerce app open [--page <page>]`                                                      | Opens the app in the developer portal.                                                              |
+| `flycommerce app secret rotate [--write-env] [--yes]`                                       | Replaces the app secret and shows the new one once.                                                 |
+| `flycommerce app token create\|list\|revoke`                                                | Creates (shown once), lists and revokes the app's deploy tokens for CI.                             |
+| `flycommerce app release [--dry-run] [--yes] [--version <x.y.z>] [--message <text>] […]`    | Works out the version and changelog from your commits, then releases it.                            |
+| `flycommerce app versions [--config <name>]`                                                | Lists the app's versions and which one is live.                                                     |
+| `flycommerce app submit [--config <name>] [--notes <text>] [--yes]`                         | Shows the review checklist and submits the app for FlyCommerce's review.                            |
 
 `flycommerce <command> --help` explains each one.
 
@@ -50,7 +58,53 @@ flycommerce app init my-app --template <name>    # from another example
 
 `app init` downloads FlyCommerce's example apps with `git` (a shallow clone, never asking for a password) and copies one into the directory, which must be new or empty; a directory holding only `.git` counts as empty. Without a directory it uses the current one. `--template` takes an example's name, never a path; a name that isn't an example lists the ones there are.
 
-The copy is named after its directory: `package.json`'s `name`, and `app-config.json`'s `appId` until you link a real app. The example's `versionId` and `version` are left out, since they're the example's, not yours. It creates nothing in the developer portal. Next, `npm install` and `npm run dev` run it on the emulator with no account; to run it on your store, create a development app in the portal, then `flycommerce app link --config dev` and `flycommerce app dev --config dev`.
+The copy is named after its directory: `package.json`'s `name`, and `app-config.json`'s `appId` until you link a real app. The example's `versionId` and `version` are left out, since they're the example's, not yours. It creates nothing in the developer portal. `flycommerce init` is the same command.
+
+Next, `npm install`, then run it on the emulator with no account (`flycommerce app dev --local`, below). To run it on your store: `flycommerce app create --dev --write-env`, `flycommerce env pull`, then `flycommerce app dev --config dev`.
+
+### Run on the emulator
+
+```bash
+flycommerce app dev --local                      # runs npm start
+flycommerce app dev --local -- npm run dev:server
+```
+
+Nothing reaches FlyCommerce: no sign-in, portal or tunnel. `app dev --local` starts FlyCommerce's emulator (a hub, a store with a few products and orders, and a dashboard), runs your server with the emulator's `APP_ID`, `APP_SECRET`, `HUB_API_URL`, `JWKS_URL`, `ALLOWED_ISSUERS`, `STORE_BASE_URL` and `FRAME_ANCESTORS`, plus `APP_URL` (`http://localhost:<port>`), `REDIRECT_URI`, `PORT` and `APP_CONFIG_FILE` as `app dev` sets them. Once the server listens, it installs the app on the emulated store and prints the dashboard and storefront links. The emulator's values replace your real App ID and secret only for that process; `.env` is untouched, and anything else your server needs, like an encryption key, still comes from it.
+
+The install grants every permission the emulator answers for (`catalog.read`, `orders.read`, `orders.write`, `webhooks.manage`, `storefront.scripts`, `storefront.customer`); `--scopes orders.read,catalog.read` grants fewer, to try what a merchant who grants less sees. Everything is in memory and starts fresh on each run. Ctrl+C stops your server and the emulator.
+
+### Create an app
+
+```bash
+flycommerce app create --name "Order Export (dev)" --dev --write-env
+```
+
+`app create` creates an app in the developer portal. A new app is unpublished: it installs only on your own stores until FlyCommerce reviews and publishes it, so the same command makes a development app or the start of a production one. `--dev` links it in `app-config.dev.json` (`--config <name>` picks another file). The app secret is shown once; `--write-env` writes `APP_ID` and `APP_SECRET` to `.env` instead, so the secret never reaches your terminal, and a new `.env` is readable only by you. Without `--name` it asks, suggesting `package.json`'s name. Pick the app's category in the portal (or pass `--category <id>`) before you submit it for review.
+
+### Point your server at the platform
+
+```bash
+flycommerce env pull
+```
+
+`env pull` asks the portal you're signed in to which platform it serves, and writes its `HUB_API_URL`, `JWKS_URL`, `ALLOWED_ISSUERS` and `FRAME_ANCESTORS` to `.env` (`--file` for another file). The same app then talks to production, staging or a local hub without code changes: sign in with `--portal` or `FLYCOMMERCE_PORTAL_URL` and pull again. It keeps every other line, comments and secrets included.
+
+### Check your setup
+
+```bash
+flycommerce doctor
+```
+
+`doctor` checks what an app needs before it runs, and says how to fix each problem:
+
+- Node's version;
+- every `app-config*.json` here, as FlyCommerce checks it;
+- the sign-in, and whether each config's app is one of yours (a development config pointing at a published app gets a warning);
+- `.env`: `APP_ID`, `APP_SECRET` and `HUB_API_URL`, and whether it points at the platform of the portal you're signed in to;
+- whether git ignores `.env`;
+- `cloudflared`, for `app dev`.
+
+It never prints a value from `.env`, and exits with `1` when something must be fixed.
 
 ### Sign in
 
@@ -65,7 +119,8 @@ The token is kept in `~/.config/flycommerce/credentials.json` (`$XDG_CONFIG_HOME
 ### Develop on your store
 
 ```bash
-flycommerce app link --config dev     # once: pick your development app
+flycommerce app create --dev --write-env   # once: a development app, linked in app-config.dev.json
+flycommerce env pull                       # once per platform
 flycommerce app dev --config dev -- npm run dev:server
 ```
 
@@ -116,6 +171,24 @@ The CLI checks `app-config.json` locally, creates the version with its changelog
 
 After releasing, it tags the commit with an annotated `app-v<version>` tag holding the changelog, so the next release starts from there. It never pushes: run `git push origin app-v1.3.0` to share the tag. `--no-git-tag` skips it. Uncommitted changes get a warning, since neither the changelog nor the tag includes them.
 
+### Day to day
+
+```bash
+flycommerce app status --config dev       # versions, review, checklist, installs, links
+flycommerce app open --page versions      # portal, versions, publishing or install
+flycommerce app secret rotate --write-env
+flycommerce app token create --name "GitHub Actions" --expires 90
+flycommerce app token list
+flycommerce app token revoke 12
+```
+
+- `app status` shows the live and waiting versions, what waits for FlyCommerce's review, what the review checklist still needs, how many stores have the app (your own by name; a published app's merchants only as a count), the last dev push, and the portal and install links.
+- `app open` opens the app's portal page in your browser, and prints the link.
+- `app secret rotate` replaces the app secret; the old one stops working at once. A published app's live installs break until you deploy the new secret, so for one it asks first (`--yes` without a terminal). `--write-env` writes the new secret to `.env` instead of showing it.
+- `app token create` makes a deploy token for CI (30, 90 or 180 days, `--name` defaults to `CI`) and shows it once. `app token list` shows when each was made, expires and was last used, never the token. `app token revoke <id>` asks first (`--yes` without a terminal).
+
+Creating apps, rotating secrets and managing tokens need your own sign-in: a deploy token can't do them.
+
 ### Submit for review
 
 ```bash
@@ -126,7 +199,7 @@ flycommerce app submit --notes "Test store: demo.example.com; the export is unde
 
 ## CI
 
-Set `FLYCOMMERCE_TOKEN` to a deploy token from the portal's **Credentials** tab. It's used instead of the saved sign-in and is never written to disk. A deploy token works for one app, can release but not submit for review, and doesn't work for `app dev`.
+Set `FLYCOMMERCE_TOKEN` to a deploy token, from `flycommerce app token create` or the portal's **Credentials** tab. It's used instead of the saved sign-in and is never written to disk. A deploy token works for one app, can release but not submit for review, and doesn't work for `app dev`.
 
 ```yaml
 on:
@@ -166,6 +239,8 @@ The tag it makes stays on the runner. Push it (`git push origin "app-v$VERSION"`
 - The sign-in uses PKCE (S256) and a random `state`, checked in constant time; an answer with another `state` is refused and nothing is saved.
 - The token goes only to the portal, over `https` (plain `http` only to `localhost`), and never follows a redirect. It's never printed, put in a URL, or passed to the processes `app dev` starts.
 - Only an answer carrying the sign-in's `state` can end it; anything else that calls the loopback is answered `400` and ignored.
+- An app secret or deploy token is shown once, as the portal shows it; with `--write-env` a secret goes to `.env` and never reaches the terminal. A `.env` the CLI creates is readable only by you, and `doctor` never prints a value from it.
+- `app dev --local` gives your server the emulator's own App ID and secret, never your real ones.
 - Everything the CLI prints, app names, titles and URLs from the portal included, is stripped of terminal escape sequences, control characters and bidi overrides.
 - Every request has a timeout.
 

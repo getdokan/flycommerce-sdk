@@ -134,7 +134,7 @@ function printSummary(ctx: Context, fileName: string, result: DevConfigResult, a
   ctx.stdout(lines.join('\n'));
 }
 
-function runApp(ctx: Context, command: string[], env: NodeJS.ProcessEnv, tunnel: Tunnel | undefined): Promise<number> {
+export function runApp(ctx: Context, command: string[], env: NodeJS.ProcessEnv, tunnel: Tunnel | undefined): Promise<number> {
   return new Promise((resolve, reject) => {
     let child: ChildProcess;
     let stopping = false;

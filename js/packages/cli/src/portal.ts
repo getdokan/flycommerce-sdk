@@ -101,6 +101,10 @@ export class PortalApi {
     return this.request<T>('PUT', path, body);
   }
 
+  async delete(path: string): Promise<void> {
+    await this.request<unknown>('DELETE', path);
+  }
+
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const signals = [AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...(this.signal ? [this.signal] : [])];
     let response: Response;
@@ -140,6 +144,9 @@ export class PortalApi {
 
     if (!response.ok) {
       throw this.error(response.status, data);
+    }
+    if (response.status === 204) {
+      return undefined as T;
     }
     if (data === undefined) {
       throw new CliError(`${this.portal} answered ${method} ${path} with something that isn't JSON.`);

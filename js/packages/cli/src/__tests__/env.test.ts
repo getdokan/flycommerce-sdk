@@ -1,0 +1,101 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { after, before, beforeEach, describe, it } from 'node:test';
+import { parseEnv } from '../env.js';
+import { FakePortal, runCli } from './fake-portal.js';
+
+describe('flycommerce env pull', () => {
+  let portal: FakePortal;
+  let dir: string;
+  let env: NodeJS.ProcessEnv;
+  const cli = (...argv: string[]) => runCli([...argv, '--portal', portal.url], { env, cwd: dir });
+  const read = (file = '.env') => fs.readFileSync(path.join(dir, file), 'utf8');
+
+  before(async () => {
+    portal = await FakePortal.start();
+  });
+
+  after(() => portal.close());
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flycommerce-env-'));
+    env = { XDG_CONFIG_HOME: dir, FLYCOMMERCE_TOKEN: portal.token };
+  });
+
+  it("writes the portal's platform to a new .env readable only by you", async () => {
+    const result = await cli('env', 'pull');
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(
+      read(),
+      [
+        '# The platform behind https://developers.example.test, from flycommerce env pull',
+        'HUB_API_URL=https://developers.example.test/api',
+        'JWKS_URL=https://hub.example.test/.well-known/jwks.json',
+        'ALLOWED_ISSUERS=https://hub.example.test',
+        'FRAME_ANCESTORS="https://*.example.shop https://*.example.test"',
+        '',
+      ].join('\n')
+    );
+    assert.equal(fs.statSync(path.join(dir, '.env')).mode & 0o777, 0o600);
+    assert.match(result.stdout, /Created \.env for https:\/\/developers\.example\.test/);
+  });
+
+  it('replaces only its own keys, keeping comments, secrets and order, and drops a key set twice', async () => {
+    fs.writeFileSync(
+      path.join(dir, '.env'),
+      [
+        '# my app',
+        'APP_ID=order-export',
+        'HUB_API_URL=https://developers.flycommerce.com/api',
+        'APP_SECRET=s3cret',
+        'HUB_API_URL=stale',
+        '',
+      ].join('\n')
+    );
+
+    assert.equal((await cli('env', 'pull')).code, 0);
+
+    assert.equal(
+      read(),
+      [
+        '# my app',
+        'APP_ID=order-export',
+        'HUB_API_URL=https://developers.example.test/api',
+        'APP_SECRET=s3cret',
+        '',
+        '# The platform behind https://developers.example.test, from flycommerce env pull',
+        'JWKS_URL=https://hub.example.test/.well-known/jwks.json',
+        'ALLOWED_ISSUERS=https://hub.example.test',
+        'FRAME_ANCESTORS="https://*.example.shop https://*.example.test"',
+        '',
+      ].join('\n')
+    );
+  });
+
+  it('writes another file with --file, and joins several issuers with commas', async () => {
+    portal.environment = { ...portal.environment, allowedIssuers: ['https://a.example', 'https://b.example'] };
+
+    assert.equal((await cli('env', 'pull', '--file', '.env.staging')).code, 0);
+
+    assert.match(read('.env.staging'), /^ALLOWED_ISSUERS=https:\/\/a\.example,https:\/\/b\.example$/m);
+    assert.equal(fs.existsSync(path.join(dir, '.env')), false);
+    portal.environment = { ...portal.environment, allowedIssuers: ['https://hub.example.test'] };
+  });
+
+  it('needs a sign-in', async () => {
+    env = { XDG_CONFIG_HOME: dir };
+    assert.match((await cli('env', 'pull')).stderr, /not signed in/);
+  });
+});
+
+describe('parseEnv', () => {
+  it('reads what dotenv files hold: quotes, export, inline comments and blank lines', () => {
+    assert.deepEqual(
+      parseEnv(['# comment', '', 'export A=1', 'B="two words"', "C='x # y'", 'D=plain # note', 'not a line', '#E=commented'].join('\n')),
+      { A: '1', B: 'two words', C: 'x # y', D: 'plain' }
+    );
+  });
+});

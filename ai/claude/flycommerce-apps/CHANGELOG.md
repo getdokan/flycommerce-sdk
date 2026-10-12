@@ -2,6 +2,10 @@
 
 All notable changes to the `flycommerce-apps` Claude Code plugin. Versions follow [semantic versioning](https://semver.org).
 
+## [0.4.1]
+
+- The CLI's day-to-day commands: `app create --dev --write-env`, `env pull`, `app dev --local` on the emulator, `doctor` first when something breaks, `app status`, `app open`, `app secret rotate` and `app token create|list|revoke`. Creating apps and rotating secrets only when the developer asks; deploy tokens never in the repo or the chat.
+
 ## [0.4.0]
 
 - Storefront scripts act for the shopper: `FlyCommerce.run()` for `cart.add`, `cart.update`, `cart.remove`, `cart.get`, `nav.goto` and `ui.openCart`, with feature detection, the store's Undo and limits, and `flycommerce:cart:updated`. Replaces the old "no customer data" rule, which the platform no longer matches.
