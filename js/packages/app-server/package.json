@@ -1,7 +1,7 @@
 {
   "name": "@flycommerce/app-server",
   "description": "Server-side building blocks for FlyCommerce apps: verify dashboard sessions, finish installs, call the store API as the user or the app, OAuth sign-in to third parties, and serve the app's pages.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "author": "FlyCommerce",
   "bugs": {
@@ -50,6 +50,6 @@
     "check:package": "publint --strict && attw --pack . --profile esm-only"
   },
   "dependencies": {
-    "@flycommerce/app-bridge": "^0.1.0"
+    "@flycommerce/app-bridge": "^0.2.0"
   }
 }
