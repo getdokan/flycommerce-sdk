@@ -127,8 +127,9 @@ flycommerce app dev --config dev -- npm run dev:server
 `app dev`:
 
 1. starts a Cloudflare quick tunnel to `http://localhost:<port>` (port 4000 unless `--port`), or uses `--tunnel-url`;
-2. pushes the config to the development app, with `appUrl` set to the tunnel;
-3. runs your server, `npm start` unless you give a command after `--`, with these set:
+2. checks that the tunnel reaches the port: before your server starts, the CLI answers a one-off request on the port itself and sends it through the tunnel, waiting up to a minute for a new tunnel's DNS. If the request comes back with anything else, it stops with the likely cause and pushes nothing. If something already listens on the port, it warns and skips the check;
+3. pushes the config to the development app, with `appUrl` set to the tunnel. Script srcs and `install.redirectUrl` on `http://localhost:<port>`, as `app init`'s example writes them, move onto the tunnel, as paths do;
+4. runs your server, `npm start` unless you give a command after `--`, with these set:
 
    | Variable          | Value                                                                                                                             |
    | ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -137,7 +138,7 @@ flycommerce app dev --config dev -- npm run dev:server
    | `PORT`            | `--port`                                                                                                                          |
    | `APP_CONFIG_FILE` | The config file's full path, so the server reads the same file                                                                    |
 
-4. prints the install link, the pages and the storefront scripts.
+5. prints the install link, the pages and the storefront scripts.
 
 `appServerConfigFromEnv()` from `@flycommerce/app-server` reads `APP_URL` and `REDIRECT_URI`, so `.env` only needs the development app's ID and secret. Load the config with `loadAppConfig(process.env.APP_CONFIG_FILE ?? 'app-config.json')`; that's why the file keeps an `appUrl` even though the push replaces it. Ctrl+C stops your server and the tunnel; if the tunnel stops on its own, `app dev` stops your server and exits with an error.
 
@@ -147,7 +148,7 @@ The tunnel URL changes on every run, so `app dev` pushes on every start. The dev
 
 `app dev` refuses an app that's published, waiting for review or rejected: it changes only by releasing a version.
 
-**Tunnels.** With no `--tunnel-url`, [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) must be installed; the CLI never downloads it. Any other tunnel works with `--tunnel-url https://…`: ngrok, a named Cloudflare tunnel, and so on.
+**Tunnels.** With no `--tunnel-url`, [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) must be installed; the CLI never downloads it. It runs `cloudflared` with an empty `--config` of its own, so a named tunnel's `~/.cloudflared/config.yml` and its `ingress` rules don't apply to the quick tunnel. Any other tunnel works with `--tunnel-url https://…`: ngrok, a named Cloudflare tunnel, and so on; it must send requests to `http://localhost:<port>`, which `app dev` checks.
 
 ### Release
 
@@ -167,7 +168,9 @@ If there's nothing releasable since the last release, it says so and exits with 
 
 It prints the version, title, tags and changelog, and asks before releasing; `--yes` doesn't ask, and `--dry-run` stops there with nothing created. Without a terminal it needs `--yes`, unless you gave both `--version` and `--message`.
 
-The CLI checks `app-config.json` locally, creates the version with its changelog, and releases it with the config, filling in `versionId` and `version`. A listed app's new pages, permissions and scripts wait for FlyCommerce's review, and the CLI lists them. A changed `install.redirectUrl` waits too: until it's approved, merchants still return to the approved URL, so keep that route working. While the app itself waits for review, the version goes live once it's approved. With `--no-release` it stops after creating the version; running the command again without it releases that same version. FlyCommerce keeps one unreleased version at a time, so while another is waiting the CLI says so and asks you to release or delete it first. If FlyCommerce refuses the config, the CLI prints each problem and exits with `1`.
+`--dry-run` runs every check the release runs before it changes anything, and fails with the same errors and exit code: the config, the version, and a version already waiting in the portal. What it can't run are FlyCommerce's own checks when it receives the config, such as its own domains, which only the release reaches.
+
+The CLI checks `app-config.json` locally, including that stores can reach it: it refuses an `appUrl`, script `src` or `install.redirectUrl` on `localhost`, a `.localhost`, `.test`, `.internal` or `.local` name, or a private address. `app dev` puts the tunnel in `appUrl` on its own, so a development config can keep `http://localhost:4000`; release a config with your app's public address. It creates the version with its changelog, and releases it with the config, filling in `versionId` and `version`. A listed app's new pages, permissions and scripts wait for FlyCommerce's review, and the CLI lists them. A changed `install.redirectUrl` waits too: until it's approved, merchants still return to the approved URL, so keep that route working. While the app itself waits for review, the version goes live once it's approved. With `--no-release` it stops after creating the version; running the command again without it releases that same version. FlyCommerce keeps one unreleased version at a time, so while another is waiting the CLI says so and asks you to release or delete it first. When the one waiting has the same number, the release uses it, with the changelog, title and tags it already has. If FlyCommerce refuses the config, the CLI prints each problem and exits with `1`.
 
 After releasing, it tags the commit with an annotated `app-v<version>` tag holding the changelog, so the next release starts from there. It never pushes: run `git push origin app-v1.3.0` to share the tag. `--no-git-tag` skips it. Uncommitted changes get a warning, since neither the changelog nor the tag includes them.
 

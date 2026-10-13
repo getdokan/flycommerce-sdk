@@ -4,7 +4,8 @@ import { childEnv, spawnCommand } from './child.js';
 import { readConfigFile } from './config-file.js';
 import { CliError, Context } from './context.js';
 import { ApiError, PortalApi, printable } from './portal.js';
-import { Tunnel, startCloudflared } from './tunnel.js';
+import { loopbackOrigins, moveOrigins } from './surfaces.js';
+import { Tunnel, probeTunnel, startCloudflared } from './tunnel.js';
 import { DevConfigResult } from './types.js';
 import { withoutTrailingSlashes } from './url.js';
 
@@ -56,7 +57,8 @@ export async function dev(ctx: Context, portal: string, options: DevOptions): Pr
   };
 
   try {
-    const pushed = { ...config, appUrl };
+    // URLs on the tunnelled port, as app init's example writes them, follow appUrl as paths do.
+    const pushed = moveOrigins(config, appUrl, loopbackOrigins(port));
     const problems = checkAppConfig(pushed);
 
     if (problems.length > 0) {
@@ -66,6 +68,10 @@ export async function dev(ctx: Context, portal: string, options: DevOptions): Pr
         absoluteSrc ? [...problems, 'Write each script src as a path, like /storefront/widget.js, so it follows appUrl.'] : problems
       );
     }
+
+    // The URL comes later: opened before its DNS is live, a browser can cache "no such host" for minutes.
+    ctx.stdout(`Checking that the tunnel reaches port ${port} on this computer…`);
+    await probeTunnel(ctx, { url: appUrl, port, quick: tunnel !== undefined, exited: tunnel?.exited });
 
     let result: DevConfigResult;
 

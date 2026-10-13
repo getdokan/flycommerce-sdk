@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import net from 'node:net';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { ExampleDashboard, FakePlatform, startFakePlatform } from '@flycommerce/app-emulator';
 import { AppConfig, checkAppConfig, resolveAppConfig } from '@flycommerce/app-server';
@@ -7,6 +6,8 @@ import { childEnv } from './child.js';
 import { readConfigFile } from './config-file.js';
 import { CliError, Context } from './context.js';
 import { DEFAULT_COMMAND, DEFAULT_PORT, runApp } from './dev.js';
+import { anyAccepts } from './loopback.js';
+import { moveOrigins } from './surfaces.js';
 
 export const LOCAL_STORE = 'local.flycom.shop';
 /** Every permission the emulator's store answers for, so each part of the app can be tried. */
@@ -41,23 +42,10 @@ function seed(platform: FakePlatform): void {
   }
 }
 
-// localhost is ::1 on many computers, 127.0.0.1 on others: a server may listen on either.
-const LOOPBACKS = ['127.0.0.1', '::1'];
-
-function accepts(port: number, host: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = net.connect(port, host);
-    socket.once('connect', () => (socket.destroy(), resolve(true)));
-    socket.once('error', () => resolve(false));
-  });
-}
-
 /** The install code goes to whatever answers on the port, so the port must be free before the server starts. */
 async function checkPortFree(port: number): Promise<void> {
-  for (const host of LOOPBACKS) {
-    if (await accepts(port, host)) {
-      throw new CliError(`Something is already listening on port ${port}. Stop it, or pass the port your server uses with --port.`);
-    }
+  if (await anyAccepts(port)) {
+    throw new CliError(`Something is already listening on port ${port}. Stop it, or pass the port your server uses with --port.`);
   }
 }
 
@@ -69,30 +57,7 @@ function onLocalHost(config: Record<string, unknown>, appUrl: string): Record<st
   } catch {
     return { ...config, appUrl };
   }
-
-  const move = (value: unknown) => {
-    if (typeof value !== 'string') return value;
-    try {
-      const url = new URL(value);
-      return url.origin === origin ? `${appUrl}${url.pathname}${url.search}${url.hash}` : value;
-    } catch {
-      return value;
-    }
-  };
-
-  const install = config.install as { redirectUrl?: unknown } | undefined;
-  const storefront = config.storefront as { scripts?: { src?: unknown }[] } | undefined;
-
-  return {
-    ...config,
-    appUrl,
-    ...(install && typeof install === 'object' && install.redirectUrl !== undefined
-      ? { install: { ...install, redirectUrl: move(install.redirectUrl) } }
-      : {}),
-    ...(storefront && Array.isArray(storefront.scripts)
-      ? { storefront: { ...storefront, scripts: storefront.scripts.map((script) => ({ ...script, src: move(script?.src) })) } }
-      : {}),
-  };
+  return moveOrigins(config, appUrl, [origin]);
 }
 
 /** Resolves once the app's server accepts connections, or rejects when it stops first. */
@@ -107,9 +72,7 @@ async function listening(port: number, stopped: Promise<number>, signal?: AbortS
 
   while (Date.now() < until) {
     if (exited || signal?.aborted) throw new CliError('Your server stopped before it listened.');
-    for (const host of LOOPBACKS) {
-      if (await accepts(port, host)) return;
-    }
+    if (await anyAccepts(port)) return;
     await sleep(200);
   }
 
