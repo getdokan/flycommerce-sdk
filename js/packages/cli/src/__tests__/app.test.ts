@@ -152,6 +152,92 @@ describe('flycommerce app', () => {
     assert.ok(!portal.apiCalls().some((call) => call.path.endsWith('/release')));
   });
 
+  it('fails a dry run with the same error as the release when another version is waiting', async () => {
+    fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(production));
+    portal.apps.get('order-export')!.versions.push({ versionId: 1, version: '1.0.0', title: '1.0.0', releasedAt: null });
+
+    const dry = await cli('app', 'release', '--version', '1.0.1', '--message', 'test', '--dry-run');
+    const real = await cli('app', 'release', '--version', '1.0.1', '--message', 'test', '--yes', '--no-git-tag');
+
+    assert.equal(dry.code, 1);
+    assert.equal(real.code, 1);
+    assert.match(dry.stderr, /Version 1\.0\.0 \(#1\) of Order Export is waiting to be released, so 1\.0\.1 can't be created yet/);
+    assert.equal(dry.stderr, real.stderr);
+    assert.doesNotMatch(dry.stdout, /Dry run: nothing was created/);
+    assert.ok(!portal.apiCalls().some((call) => call.method === 'POST'), 'neither creates nor releases anything');
+  });
+
+  it('says in a dry run, as in the release, that the waiting version of that number is used and its changelog stays', async () => {
+    fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(production));
+    portal.apps.get('order-export')!.versions.push({ versionId: 1, version: '1.0.0', title: '1.0.0', releasedAt: null });
+    const notice =
+      /Version 1\.0\.0 \(#1\) already exists and isn't released; using it\. Its changelog, title and tags stay as written, so the ones below aren't used\./;
+
+    const dry = await cli('app', 'release', '--version', '1.0.0', '--message', 'test', '--dry-run');
+    assert.equal(dry.code, 0, dry.stderr);
+    assert.match(dry.stdout, notice);
+    assert.ok(!portal.apiCalls().some((call) => call.method === 'POST'));
+
+    const real = await cli('app', 'release', '--version', '1.0.0', '--message', 'test', '--yes', '--no-git-tag');
+    assert.equal(real.code, 0, real.stderr);
+    assert.match(real.stdout, notice);
+    assert.deepEqual(
+      portal
+        .apiCalls()
+        .filter((call) => call.method === 'POST')
+        .map((call) => call.path),
+      ['/api/cli/v1/apps/order-export/versions/1/release']
+    );
+  });
+
+  for (const [appUrl, why] of [
+    ['http://localhost:4000', /appUrl is http:\/\/localhost:4000, which only this computer or a private network can reach\./],
+    ['https://orders.test', /appUrl is https:\/\/orders\.test, which only this computer or a private network can reach\./],
+  ] as const) {
+    it(`refuses to release, or dry-run, a config with appUrl ${appUrl}, naming the file in use`, async () => {
+      fs.writeFileSync(path.join(dir, 'app-config.dev.json'), JSON.stringify({ ...production, appId: 'order-export-dev', appUrl }));
+
+      const dry = await cli('app', 'release', '--config', 'dev', '--version', '1.0.0', '--message', 'test', '--dry-run');
+      const real = await cli('app', 'release', '--config', 'dev', '--version', '1.0.0', '--message', 'test', '--yes', '--no-git-tag');
+
+      assert.equal(dry.code, 1);
+      assert.equal(real.code, 1);
+      assert.match(dry.stderr, /Error: app-config\.dev\.json can't be released:/);
+      assert.match(dry.stderr, why);
+      assert.match(dry.stderr, /app dev puts the tunnel in appUrl on its own/);
+      assert.equal(dry.stderr, real.stderr);
+      assert.ok(!portal.apiCalls().some((call) => call.method === 'POST'));
+    });
+  }
+
+  it('names the config file in use when the portal refuses it', async () => {
+    fs.writeFileSync(path.join(dir, 'app-config.dev.json'), JSON.stringify({ ...production, appId: 'order-export-dev' }));
+    portal.releaseAnswer = {
+      status: 422,
+      body: {
+        error: 'invalid_config',
+        message: 'app-config.json is not valid.',
+        problems: ['appUrl: The appUrl cannot use a platform domain.'],
+      },
+    };
+
+    const result = await cli('app', 'release', '--config', 'dev', '--version', '1.2.0', '--message', 'x');
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /Error: app-config\.dev\.json is not valid\./);
+    assert.match(result.stderr, /Fix app-config\.dev\.json and run the same command again/);
+  });
+
+  it('says which of the release checks a dry run leaves to FlyCommerce', async () => {
+    fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(production));
+
+    const result = await cli('app', 'release', '--version', '1.2.0', '--message', 'x', '--dry-run');
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /Dry run: nothing was created, released or tagged\./);
+    assert.match(result.stdout, /FlyCommerce checks the config's URLs again when you release/);
+  });
+
   it('checks the config locally before calling the portal', async () => {
     fs.writeFileSync(
       path.join(dir, 'app-config.json'),

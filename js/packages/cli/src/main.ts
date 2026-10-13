@@ -136,9 +136,10 @@ A new app-config.<name>.json starts as a copy of app-config.json. Without --app,
   'app dev': `Usage: flycommerce app dev [--config <name>] [--port <port>] [--tunnel-url <url>] [-- <command>]
        flycommerce app dev --local [--config <name>] [--port <port>] [--scopes <list>] [-- <command>]
 
-Starts a Cloudflare quick tunnel to http://localhost:<port> (or uses --tunnel-url), pushes the
-config to the development app with appUrl set to the tunnel, then runs your server with
-APP_URL, REDIRECT_URI, PORT and APP_CONFIG_FILE set. Ctrl+C stops the server and the tunnel.
+Starts a Cloudflare quick tunnel to http://localhost:<port> (or uses --tunnel-url), checks it
+reaches that port, pushes the config to the development app with appUrl set to the tunnel, then
+runs your server with APP_URL, REDIRECT_URI, PORT and APP_CONFIG_FILE set. Ctrl+C stops the
+server and the tunnel.
 Only for an unpublished app: link a development app with flycommerce app link --config dev.
 
   --config <name>     Use app-config.<name>.json, like --config dev
@@ -179,7 +180,7 @@ It shows all that and asks before releasing, then tags the commit: <prefix><vers
   --config <name>       Use app-config.<name>.json
   --tag-prefix <text>   Git tags look like <prefix><x.y.z> (default app-v, or app-<name>-v with --config)
   --include-all         Count every commit, chores, docs, tests and CI included
-  --dry-run             Show the version and changelog, and stop: nothing is created
+  --dry-run             Run the release's checks, show the version and changelog, and stop: nothing is created
   --edit                Edit the changelog in $EDITOR before releasing
   -y, --yes             Don't ask; needed without a terminal unless --version and --message are both given
   --no-release          Create the version, but don't release it

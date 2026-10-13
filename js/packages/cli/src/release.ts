@@ -18,7 +18,8 @@ import { CliError, Context, confirmed } from './context.js';
 import { editText } from './editor.js';
 import { Repo, commitsSince, createTag, hasUncommittedChanges, lastReleaseTag, openRepo } from './git.js';
 import { ApiError, PortalApi } from './portal.js';
-import { AppDetails, ReleaseResult } from './types.js';
+import { releaseProblems } from './surfaces.js';
+import { AppDetails, AppVersionSummary, ReleaseResult } from './types.js';
 
 // awaitingReview names the redirect this way, beside page slugs and script handles.
 const REDIRECT_REVIEW_KEY = 'install.redirectUrl';
@@ -68,7 +69,82 @@ function checkOptions(options: ReleaseOptions): void {
   }
 }
 
+interface ReleasePlan {
+  api: PortalApi;
+  appPath: string;
+  app: AppDetails;
+  fileName: string;
+  config: Record<string, unknown>;
+  version: string;
+  changelog: string;
+  title: string;
+  tags: string[];
+  tagName: string;
+  tagging: boolean;
+  repo?: Repo;
+  /** The unreleased version of this number in the portal, which the release uses as it is. */
+  waiting?: AppVersionSummary;
+}
+
 export async function release(ctx: Context, portal: string, options: ReleaseOptions): Promise<void> {
+  // A dry run stops after the same checks, so it fails wherever the release would before changing anything.
+  const plan = await planRelease(ctx, portal, options);
+  if (!plan) return;
+
+  if (options.dryRun) {
+    ctx.stdout(
+      [
+        'Dry run: nothing was created, released or tagged.',
+        "It ran the checks the release runs here: the config, the version and any version already waiting. FlyCommerce checks the config's URLs again when you release, with rules only it holds, such as its own domains.",
+      ].join('\n')
+    );
+    return;
+  }
+
+  const { api, appPath, app, version, changelog, title, tags, tagName, tagging, repo } = plan;
+
+  await confirm(ctx, options, `${options.noRelease ? 'Create' : 'Release'} ${version} of ${app.name}? (y/N) `);
+
+  const versionId = plan.waiting?.versionId ?? (await createVersion(ctx, api, appPath, app, { version, changelog, title, tags }));
+
+  if (options.noRelease) {
+    ctx.stdout('Not released (--no-release). Run the same command without --no-release to release it.');
+    return;
+  }
+
+  let result: ReleaseResult;
+
+  try {
+    result = await api.post<ReleaseResult>(`${appPath}/versions/${versionId}/release`, {
+      config: { ...plan.config, versionId, version },
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'invalid_config') {
+      throw new ApiError(
+        error.status,
+        error.code,
+        `${error.message.replace(/^app-config\.json\b/, plan.fileName)}\nVersion ${version} (#${versionId}) exists but isn't released. Fix ${plan.fileName} and run the same command again.`,
+        error.problems
+      );
+    }
+    throw error;
+  }
+
+  ctx.stdout(`Released ${result.version} (#${result.versionId}) of ${app.name}.`);
+  reportReview(ctx, app, result);
+
+  if (tagging && repo) {
+    try {
+      createTag(repo, tagName, `${title}\n\n${changelog}\n`);
+      ctx.stdout(`Tagged ${tagName}; the next release starts from it. Share it with: git push origin ${tagName}`);
+    } catch (error) {
+      ctx.stderr(`Warning: released, but the git tag ${tagName} wasn't created: ${(error as Error).message}`);
+    }
+  }
+}
+
+/** Every check a release makes before it changes anything, then the preview; undefined when there's nothing to release. */
+async function planRelease(ctx: Context, portal: string, options: ReleaseOptions): Promise<ReleasePlan | undefined> {
   checkOptions(options);
 
   const tagCheck = options.tags && options.tags.length > 0 ? checkTags(options.tags) : undefined;
@@ -82,6 +158,16 @@ export async function release(ctx: Context, portal: string, options: ReleaseOpti
 
   if (problems.length > 0) {
     throw new CliError(`${file.name} is not valid:`, problems);
+  }
+
+  const unreachable = releaseProblems(config);
+
+  if (unreachable.length > 0) {
+    throw new CliError(`${file.name} can't be released:`, [
+      ...unreachable,
+      "Stores load the app from appUrl, so a release needs the app's public https address. app dev puts the tunnel in appUrl on its own, and app dev --local uses this computer, so neither needs it here.",
+      'Write script srcs and install.redirectUrl as paths, like /storefront/welcome.js, so they follow appUrl.',
+    ]);
   }
 
   const prefix = options.tagPrefix ?? defaultTagPrefix(options.config);
@@ -114,8 +200,12 @@ export async function release(ctx: Context, portal: string, options: ReleaseOpti
 
   if (version === undefined) {
     ctx.stdout(nothingToRelease(history));
-    return;
+    return undefined;
   }
+
+  // The hub holds one unreleased version at a time.
+  const waiting = app.versions.find((candidate) => !candidate.releasedAt);
+  if (waiting && waiting.version !== version) throw versionWaiting(app, waiting, version);
 
   let changelog =
     options.message?.trim() ?? (history.analysis.entries.length > 0 ? changelogMarkdown(history.analysis.entries) : undefined);
@@ -141,6 +231,13 @@ export async function release(ctx: Context, portal: string, options: ReleaseOpti
   const tagging = repo !== undefined && !options.noGitTag && !options.noRelease;
 
   const source = options.version !== undefined ? '--version' : `${bump}: ${history.since}`;
+
+  if (waiting) {
+    ctx.stdout(
+      `Version ${waiting.version} (#${waiting.versionId}) already exists and isn't released; using it. Its changelog, title and tags stay as written, so the ones below aren't used.\n`
+    );
+  }
+
   ctx.stdout(
     [
       `${app.name} (${app.appId})`,
@@ -158,49 +255,7 @@ export async function release(ctx: Context, portal: string, options: ReleaseOpti
     ctx.stderr('Warning: there are uncommitted changes here; the changelog and the git tag cover committed work only.');
   }
 
-  if (options.dryRun) {
-    ctx.stdout('Dry run: nothing was created, released or tagged.');
-    return;
-  }
-
-  await confirm(ctx, options, `${options.noRelease ? 'Create' : 'Release'} ${version} of ${app.name}? (y/N) `);
-
-  const versionId = await createVersion(ctx, api, appPath, app, { version, changelog, title, tags });
-
-  if (options.noRelease) {
-    ctx.stdout('Not released (--no-release). Run the same command without --no-release to release it.');
-    return;
-  }
-
-  let result: ReleaseResult;
-
-  try {
-    result = await api.post<ReleaseResult>(`${appPath}/versions/${versionId}/release`, {
-      config: { ...config, versionId, version },
-    });
-  } catch (error) {
-    if (error instanceof ApiError && error.code === 'invalid_config') {
-      throw new ApiError(
-        error.status,
-        error.code,
-        `${error.message}\nVersion ${version} (#${versionId}) exists but isn't released. Fix ${file.name} and run the same command again.`,
-        error.problems
-      );
-    }
-    throw error;
-  }
-
-  ctx.stdout(`Released ${result.version} (#${result.versionId}) of ${app.name}.`);
-  reportReview(ctx, app, result);
-
-  if (tagging && repo) {
-    try {
-      createTag(repo, tagName, `${title}\n\n${changelog}\n`);
-      ctx.stdout(`Tagged ${tagName}; the next release starts from it. Share it with: git push origin ${tagName}`);
-    } catch (error) {
-      ctx.stderr(`Warning: released, but the git tag ${tagName} wasn't created: ${(error as Error).message}`);
-    }
-  }
+  return { api, appPath, app, fileName: file.name, config, version, changelog, title, tags, tagName, tagging, repo, waiting };
 }
 
 function readHistory(
@@ -307,17 +362,22 @@ async function createVersion(
 
     const { versionId, version } = error.details as { versionId?: number; version?: string };
 
+    // Created since the plan read the versions.
     if (version === options.version && typeof versionId === 'number') {
       ctx.stdout(`Version ${version} (#${versionId}) already exists and isn't released; using it. Its changelog stays as written.`);
       return versionId;
     }
 
-    throw new CliError(
-      `Version ${version} (#${versionId}) of ${app.name} is waiting to be released, so ${options.version} can't be created yet.`,
-      [
-        `Release it: flycommerce app release --version ${version} --message "…"`,
-        "Or delete it in the developer portal's Versions tab, then run this again.",
-      ]
-    );
+    throw versionWaiting(app, { versionId, version }, options.version);
   }
+}
+
+function versionWaiting(app: AppDetails, waiting: { versionId?: number; version?: string }, version: string): CliError {
+  return new CliError(
+    `Version ${waiting.version} (#${waiting.versionId}) of ${app.name} is waiting to be released, so ${version} can't be created yet.`,
+    [
+      `Release it: flycommerce app release --version ${waiting.version} --message "…"`,
+      "Or delete it in the developer portal's Versions tab, then run this again.",
+    ]
+  );
 }

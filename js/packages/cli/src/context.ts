@@ -10,6 +10,9 @@ export interface Context {
   /** Aborted on Ctrl+C: stops `app dev` and a waiting `login`. */
   signal?: AbortSignal;
   loginTimeoutMs?: number;
+  /** Requests through the tunnel that `app dev` checks; tests stand in for Cloudflare. */
+  tunnelFetch?: typeof fetch;
+  tunnelCheckTimeoutMs?: number;
 }
 
 export class CliError extends Error {
