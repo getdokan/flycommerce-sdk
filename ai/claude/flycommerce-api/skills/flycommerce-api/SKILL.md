@@ -43,7 +43,7 @@ Every token lasts 15 minutes. There is no refresh token: get a new one.
 - **Filters are `filters[...]`**, plural; `filter` is a `400` naming the right one. Unknown filter and sort names are a `400`.
 - **Paging is opt-in.** Without `paginate` you get only the first `limit` rows and no sign of more, and `page` alone does nothing. Use `paginate=full` with `page` and `limit` for `meta` (`currentPage`, `lastPage`, `perPage`, `total`), or `paginate=cursor` to walk a large set.
 - **Incremental sync:** `filters[updatedAt]` with `sort=updatedAt,id`. A bare value means "since". Deletions and unpublished records just disappear, so only a periodic full read finds them.
-- **Cart and Checkout** endpoints are the shopper's own flow and refuse app tokens. An installed app changes a shopper's cart from its storefront script with `window.FlyCommerce.run('cart.add', …)`, which works on whoever's cart is on the page; there's no cart id to fetch (see the flycommerce-apps skill). Only a client signed in as the customer, like the store's own mobile app, calls the Cart API, where `GET /api/v1/cart` returns that customer's cart.
+- **Cart, Checkout and Account** endpoints are the shopper's own flow and refuse app tokens. An installed app changes a shopper's cart from its storefront script with `window.FlyCommerce.run('cart.add', …)`, which works on whoever's cart is on the page; there's no cart id to fetch (see the flycommerce-apps skill). Only a client signed in as the customer, like the store's own mobile app, calls these APIs: `GET /api/v1/cart` returns that customer's cart, and `DELETE /api/v1/user/my-account/delete-account` deletes their account, which signs them out everywhere. An app can't delete a customer's account.
 
 ## Errors
 
