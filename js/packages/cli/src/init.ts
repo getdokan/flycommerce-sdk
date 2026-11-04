@@ -54,13 +54,13 @@ export function initApp(ctx: Context, options: InitOptions): void {
     const { versionId, version, ...config } = readExampleFile(clone, template, configFile);
     const pkg = readExampleFile(clone, template, packageFile);
 
-    fs.cpSync(source, target, {
-      recursive: true,
-      errorOnExist: true,
-      force: false,
-      verbatimSymlinks: true,
-      filter: (file) => file !== configFile && file !== packageFile,
-    });
+    // Entry by entry: since Node 24.22, cpSync with errorOnExist refuses a target directory that already exists.
+    fs.mkdirSync(target, { recursive: true });
+    for (const entry of fs.readdirSync(source)) {
+      const from = path.join(source, entry);
+      if (from === configFile || from === packageFile) continue;
+      fs.cpSync(from, path.join(target, entry), { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true });
+    }
     // wx: never overwrite a file that appeared since the directory was checked.
     fs.writeFileSync(path.join(target, 'app-config.json'), JSON.stringify({ ...config, appId: name }, null, 2) + '\n', { flag: 'wx' });
     fs.writeFileSync(path.join(target, 'package.json'), JSON.stringify({ ...pkg, name }, null, 2) + '\n', { flag: 'wx' });
