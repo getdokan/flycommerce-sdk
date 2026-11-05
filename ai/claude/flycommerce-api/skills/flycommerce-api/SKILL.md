@@ -45,6 +45,12 @@ Every token lasts 15 minutes. There is no refresh token: get a new one.
 - **Incremental sync:** `filters[updatedAt]` with `sort=updatedAt,id`. A bare value means "since". Deletions and unpublished records just disappear, so only a periodic full read finds them.
 - **Cart, Checkout and Account** endpoints are the shopper's own flow and refuse app tokens. An installed app changes a shopper's cart from its storefront script with `window.FlyCommerce.run('cart.add', …)`, which works on whoever's cart is on the page; there's no cart id to fetch (see the flycommerce-apps skill). Only a client signed in as the customer, like the store's own mobile app, calls these APIs: `GET /api/v1/cart` returns that customer's cart, and `DELETE /api/v1/user/my-account/delete-account` deletes their account, which signs them out everywhere. An app can't delete a customer's account.
 
+## Money and store details
+
+- Amounts are decimals in the currency's main unit: `120` is 120 dollars, not cents.
+- Products, variations, carts, stats and reports carry the store's `currency`. Orders and refunds carry the currency they were placed in, which can differ from the store's if it changed currency since. Don't make a second call for it.
+- `GET /api/v1/store` (needs `catalog.read`) returns currency formatting, timezone, language, country and default units.
+
 ## Errors
 
 - `401`: the token expired, the login ended, or the app was uninstalled. Get a new token once; if that's refused too, stop working for that store.
@@ -54,7 +60,7 @@ Every token lasts 15 minutes. There is no refresh token: get a new one.
 
 ## Webhooks
 
-- Subscribe with `POST https://<store>/api/v1/integrations/webhooks` (`webhooks.manage`): `endpoint`, `events`, `description`, `status`. The answer's secret is shown once: store it encrypted.
+- Subscribe with `POST https://<store>/api/v1/integrations/webhooks` (`webhooks.manage`, plus `orders.read` for `order.*` events or `catalog.read` for the others; otherwise `422`): `endpoint`, `events`, `description`, `status`. The answer's secret is shown once: store it encrypted.
 - Events: `order.created`, `order.updated`, `order.deleted`, `order.canceled`, `order.completed`, `order.refund.created`, `order.shipment.created`, `order.shipment.updated`, and `created`/`updated`/`deleted` for `product`, `category`, `collection` and `brand`.
 - Verify `X-Webhook-Signature`: lowercase hex HMAC-SHA256 of the **raw body bytes**, keyed with the subscription's secret, compared in constant time (`hash_equals`, `crypto.timingSafeEqual`), before parsing JSON.
 - Each event is sent once, never retried, with no delivery ID or timestamp. Make handlers idempotent on the resource ID and update time, answer `2xx` fast, and catch up on a schedule.

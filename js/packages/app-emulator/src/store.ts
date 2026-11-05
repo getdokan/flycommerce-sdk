@@ -594,6 +594,15 @@ export class FakeStore {
       endpoint = null;
     }
 
+    const ungranted = events.filter((event) => !grant.scopes.includes(event.startsWith('order.') ? 'orders.read' : 'catalog.read'));
+
+    if (ungranted.length > 0) {
+      return sendJson(res, 422, {
+        message: `Subscribing to ${ungranted[0]} needs the ${ungranted[0].startsWith('order.') ? 'orders.read' : 'catalog.read'} scope.`,
+        errors: { events: [`Grant the read scope for: ${ungranted.join(', ')}.`] },
+      });
+    }
+
     if (!endpoint || !/^https?:$/.test(endpoint.protocol) || events.length === 0 || unknown.length > 0) {
       return sendJson(res, 422, {
         message: 'The given data was invalid.',

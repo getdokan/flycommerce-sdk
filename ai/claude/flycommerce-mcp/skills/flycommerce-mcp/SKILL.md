@@ -35,6 +35,12 @@ If an MCP client SDK, an agent framework's skill or the Claude API skill is avai
 - A platform proves itself with `X-API-Key: agk_...`, or an RFC 9421 HTTP message signature (`ecdsa-p256-sha256`, covering `@method`, `@authority`, `@path`, `@query` when present, `content-digest`, `content-type`, and `ucp-agent`/`signature-agent`/`idempotency-key` when sent; `created` at most 300 seconds old). A signature missing a required component counts as no signature. Read the guide's signature section before implementing it.
 - `User-Agent` is never identity. Keys and private keys come from environment variables or a secret store, never the repo or logs.
 
+## Prices and currency
+
+- Every response with money names its currency, so no extra call is needed.
+- `search_catalog`, `lookup_catalog`, `get_product`, `update_cart` and `get_cart` use decimals in the main unit: `12.5` is 12.50. On a product, `price.currency` also applies to its items' `price`.
+- Checkout tools and `get_order` follow UCP and use integers in the currency's smallest unit: `1250` is 12.50, and `1000` JPY is ¥1000. Never mix the two without converting.
+
 ## Checkout hand-off
 
 - No tool takes the shopper's money. Every checkout ends with the shopper confirming and paying on the store's own checkout at `continue_url`.
