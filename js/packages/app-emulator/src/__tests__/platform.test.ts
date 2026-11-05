@@ -124,8 +124,24 @@ describe('the fake platform', () => {
     );
   });
 
+  it('needs the read scope for the records an event delivers before subscribing', async () => {
+    const store = await install(['webhooks.manage', 'catalog.read']);
+
+    await assert.rejects(
+      storeApi.asApp(store).request('POST', '/api/v1/integrations/webhooks', {
+        body: { endpoint: 'https://example.test/hooks', events: ['order.created'] },
+      }),
+      /needs the orders\.read scope/
+    );
+
+    const created = await storeApi.asApp(store).request<{ data: { id: number } }>('POST', '/api/v1/integrations/webhooks', {
+      body: { endpoint: 'https://example.test/hooks', events: ['product.updated'] },
+    });
+    await storeApi.asApp(store).request('DELETE', `/api/v1/integrations/webhooks/${created.data.id}`);
+  });
+
   it('lets an app manage only its own webhooks, and signs deliveries with the secret it returned once', async () => {
-    const store = await install(['webhooks.manage']);
+    const store = await install(['webhooks.manage', 'orders.read']);
     const fixture = platform.store.store(domain);
     fixture.webhookList.push({
       id: 999,
@@ -196,7 +212,7 @@ describe('the fake platform', () => {
   });
 
   it('reconciles to exactly one subscription per endpoint, with a fresh secret', async () => {
-    const store = await install(['webhooks.manage']);
+    const store = await install(['webhooks.manage', 'orders.read']);
     const client = storeApi.asApp(store);
     const endpoint = 'http://127.0.0.1:9/hooks?store=alpha.flycom.shop';
 

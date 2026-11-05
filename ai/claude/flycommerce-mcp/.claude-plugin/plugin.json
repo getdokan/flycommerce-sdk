@@ -1,6 +1,6 @@
 {
   "name": "flycommerce-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Connect an AI agent or agent platform to a FlyCommerce store's MCP server: tools, identity, checkout hand-off and errors.",
   "author": {
     "name": "FlyCommerce",

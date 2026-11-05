@@ -2,6 +2,11 @@
 
 All notable changes to the `flycommerce-api` Claude Code plugin. Versions follow [semantic versioning](https://semver.org).
 
+## [0.1.3]
+
+- Document `currency` on money responses and `GET /api/v1/store`.
+- Subscribing to a webhook event also needs the read scope for what it delivers.
+
 ## [0.1.2]
 
 - Account joins Cart and Checkout as the shopper's own flow: deleting a customer's account takes the customer's sign-in and refuses app tokens.

@@ -4,7 +4,7 @@ A store sends your app an HTTP request when something your app subscribed to hap
 
 ## Subscribing
 
-Your app creates its own subscriptions through the store API (`POST /api/v1/integrations/webhooks`, which needs the `webhooks.manage` permission). The response includes a **secret**, shown only once. Encrypt it and keep it.
+Your app creates its own subscriptions through the store API (`POST /api/v1/integrations/webhooks`, which needs the `webhooks.manage` permission). An event also needs the permission to read what it delivers: `orders.read` for `order.*` events, `catalog.read` for the others. Without it, subscribing returns 422. The response includes a **secret**, shown only once. Encrypt it and keep it.
 
 An app sees and manages only the subscriptions it created.
 
