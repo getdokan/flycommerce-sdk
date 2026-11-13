@@ -58,12 +58,8 @@ export class ExampleDashboard {
 
   static async start(options: ExampleDashboardOptions): Promise<ExampleDashboard> {
     const dashboard = new ExampleDashboard(options);
-    const plans = options.plans ?? [];
 
-    if (plans.length > 0) {
-      const first = plans.find((plan) => plan.default) ?? plans[0];
-      options.hub.declarePlans(options.appId, [first.key, ...plans.filter((plan) => plan !== first).map((plan) => plan.key)]);
-    }
+    if (options.plans) options.hub.declarePlans(options.appId, options.plans);
 
     dashboard.server = await serve((req, res, url) => dashboard.route(req, res, url), options.port);
     return dashboard;
@@ -94,9 +90,10 @@ export class ExampleDashboard {
           ? 'available'
           : 'plan';
     const parent = this.options.pages.find((candidate) => (candidate.children ?? []).includes(page));
-    const access = own(page);
+    const states = [own(page), ...(parent ? [own(parent)] : [])];
 
-    return access === 'available' && parent ? own(parent) : access;
+    // As pageAccess() in @flycommerce/app-server: switched off anywhere up the tree wins.
+    return states.includes('inactive') ? 'inactive' : states.includes('plan') ? 'plan' : 'available';
   }
 
   /** Where an app may send a merchant: under /admin, read without the query string and percent-decoded. */

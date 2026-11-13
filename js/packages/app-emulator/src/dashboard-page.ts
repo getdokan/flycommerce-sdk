@@ -57,8 +57,7 @@ export interface HostPageConfig {
 // Mirrors the real dashboard's embed page: same sandbox, same message checks, same title bar limits.
 const HOST_SCRIPT = String.raw`
 const config = JSON.parse(document.getElementById('host-config').textContent);
-// The frame's own origin: a callback may land the merchant on another port of the app's host.
-const appOrigin = new URL(config.frameUrl).origin;
+const appOrigin = new URL(config.appUrl).origin;
 const nonce = crypto.randomUUID();
 const frame = document.getElementById('app-frame');
 const log = document.getElementById('bridge-log');

@@ -310,6 +310,13 @@ describe('paths and the install redirect in app-config.json', () => {
       assert.match(problemsOf({ plans: [{ key: 'free', name: ' ', default: true }] }), /name must be text/);
     });
 
+    it('reports an appUrl that is not a URL once, without blaming the callback', () => {
+      assert.deepStrictEqual(
+        checkAppConfig(withChanges({ appUrl: 'crm.example.com', plans, planCallback: 'https://crm.example.com/cb' })),
+        ['appUrl is not a URL: crm.example.com']
+      );
+    });
+
     it('resolves what an unchecked config has, even without dashboard', () => {
       const resolved = resolveAppConfig({ appId: 'a', appUrl: 'https://crm.example.com', planCallback: '/cb' } as unknown as AppConfig);
 

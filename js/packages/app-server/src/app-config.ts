@@ -406,7 +406,10 @@ function checkCallback(value: unknown, appUrl: unknown, where: string): string[]
   if (typeof appUrl !== 'string') return [];
 
   // The session token goes to the app's own address: another port of its host is another service.
-  if (!isPath(callback) && originOf(callback) !== originOf(appUrl)) {
+  const appOrigin = originOf(appUrl);
+
+  // An appUrl that isn't a URL is reported on its own; there is nothing to compare a callback with.
+  if (appOrigin !== null && !isPath(callback) && originOf(callback) !== appOrigin) {
     return [`${where} must be on ${withoutTrailingSlashes(appUrl)}, port included.`];
   }
 

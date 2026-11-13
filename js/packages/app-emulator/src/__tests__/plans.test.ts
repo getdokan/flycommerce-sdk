@@ -65,7 +65,10 @@ describe('plans, locked pages and callbacks, end to end', () => {
             label: 'Beta',
             path: '/beta',
             isActive: false,
-            children: [{ slug: 'beta-notes', label: 'Notes', path: '/beta/notes' }],
+            children: [
+              { slug: 'beta-notes', label: 'Notes', path: '/beta/notes' },
+              { slug: 'beta-pro', label: 'Pro notes', path: '/beta/pro', plans: ['pro'], callback: '/callbacks/reports-locked' },
+            ],
           },
         ],
       },
@@ -206,6 +209,10 @@ describe('plans, locked pages and callbacks, end to end', () => {
     // A sub-page with no conditions of its own is locked with its parent.
     assert.match(await (await open('/apps/beta-notes')).text(), /has switched this page off for now/);
     assert.strictEqual(asked.length, before);
+
+    // Its own plans don't make the reason "plan": no upgrade could open a page under one that is switched off.
+    await open('/apps/beta-pro');
+    assert.deepStrictEqual(asked.at(-1), { page: 'beta-pro', reason: 'inactive', store, plan: platform.hub.planOf('app_plans', store) });
   });
 
   it('asks the plan callback where to send the owner, and changes nothing itself', async () => {
@@ -266,13 +273,11 @@ describe('plans, locked pages and callbacks, end to end', () => {
     assert.strictEqual((await call('/callbacks/reports-locked', null)).status, 400);
   });
 
-  it('frames a landing on its own origin, and falls back to the default when the app drops a store’s plan', async () => {
-    assert.match(await (await open('/apps/orders')).text(), /new URL\(config\.frameUrl\)\.origin/);
-
+  it('falls back to the default when the app drops a store’s plan', () => {
     platform.hub.setPlan('app_plans', store, 'pro');
-    platform.hub.declarePlans('app_plans', ['free']);
+    platform.hub.declarePlans('app_plans', [{ key: 'free', default: true }]);
     assert.strictEqual(platform.hub.planOf('app_plans', store), 'free');
-    platform.hub.declarePlans('app_plans', ['free', 'pro']);
+    platform.hub.declarePlans('app_plans', config.plans ?? []);
   });
 
   it('offers no plan switch on a store that never let the app set its plan', async () => {
@@ -288,17 +293,29 @@ describe('plans, locked pages and callbacks, end to end', () => {
     assert.match(await (await open('/apps/orders')).text(), /href="\/plan-change\?/);
   });
 
+  it('refuses every plan for an app that declares none, as FlyCommerce does', async () => {
+    const none = await startFakePlatform({ appId: 'app_none', appSecret: 's', redirectUri: 'http://127.0.0.1:9/cb' });
+
+    try {
+      none.hub.install('app_none', { store, scopes: ['plan.manage'] });
+      assert.strictEqual(none.hub.setPlan('app_none', store, 'pro'), false);
+      assert.strictEqual(none.hub.planOf('app_none', store), null);
+    } finally {
+      await none.close();
+    }
+  });
+
   it('refuses an undeclared plan from the registration alone, with no dashboard running', async () => {
     const bare = await startFakePlatform({
       appId: 'app_bare',
       appSecret: 's',
       redirectUri: 'http://127.0.0.1:9/cb',
-      plans: ['free', 'pro'],
+      plans: [{ key: 'pro' }, { key: 'free', default: true }],
     });
 
     try {
       bare.hub.install('app_bare', { store, scopes: ['plan.manage'] });
-      assert.strictEqual(bare.hub.planOf('app_bare', store), 'free');
+      assert.strictEqual(bare.hub.planOf('app_bare', store), 'free', 'the default, wherever it is listed');
       assert.strictEqual(bare.hub.setPlan('app_bare', store, 'gold'), false);
       assert.strictEqual(bare.hub.setPlan('app_bare', store, 'pro'), true);
     } finally {

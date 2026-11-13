@@ -49,7 +49,27 @@ describe('plans', () => {
     assert.strictEqual(pageAccess(config, 'nowhere', 'team'), 'inactive');
   });
 
-  it('locks a sub-page for its own reason first, then for its parent’s', () => {
+  it('reports a sub-page of a switched-off page as inactive whatever its own plans, as FlyCommerce does', () => {
+    const off: Pick<AppConfig, 'dashboard'> = {
+      dashboard: {
+        pages: [
+          {
+            slug: 'beta',
+            label: 'Beta',
+            path: '/beta',
+            isActive: false,
+            children: [{ slug: 'beta-pro', label: 'Pro', path: '/beta/pro', plans: ['pro'] }],
+          },
+        ],
+      },
+    };
+
+    // Upgrading could never open it, so the reason must not be "plan".
+    assert.strictEqual(pageAccess(off, 'beta-pro', 'free'), 'inactive');
+    assert.strictEqual(pageAccess(off, 'beta-pro', 'pro'), 'inactive');
+  });
+
+  it('locks a sub-page by plan for its own plans or its parent’s', () => {
     assert.strictEqual(pageAccess(config, 'sales', 'pro'), 'available');
     assert.strictEqual(pageAccess(config, 'sales', 'free'), 'plan');
     assert.strictEqual(pageAccess(config, 'forecast', 'pro'), 'plan');

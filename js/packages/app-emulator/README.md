@@ -44,7 +44,7 @@ await platform.close();
 
 `ExampleDashboard.start({ hub, appId, appName, appUrl, store, pages })` serves a stand-in for the merchant dashboard. Pass `dashboard.pages` from `app-config.json`: as in the real dashboard, each page is framed at `appUrl` + its `path`, and answers the bridge the same way.
 
-Pass `plans` and `planCallback` from the same file to try plans: pages lock by their `plans` and `isActive`, the menu shows a lock, a locked page calls its `callback` and frames the path your app answers, and the menu's plan switch calls your `planCallback`. The store accepts `PUT /api/v1/app-installation/plan` from your app's own token when the install grants `plan.manage`, and every token carries the `plan` claim. `hub.setPlan(appId, store, plan)` and `hub.planOf(appId, store)` set and read it in tests; pass `plans` (keys, default first) to `startFakePlatform()` to have an undeclared plan refused without a dashboard.
+Pass `plans` and `planCallback` from the same file to try plans: pages lock by their `plans` and `isActive`, the menu shows a lock, a locked page calls its `callback` and frames the path your app answers, and the menu's plan switch calls your `planCallback`. The store accepts `PUT /api/v1/app-installation/plan` from your app's own token when the install grants `plan.manage`, and every token carries the `plan` claim. `hub.setPlan(appId, store, plan)` and `hub.planOf(appId, store)` set and read it in tests; the hub learns the plans from the dashboard, or from `plans` passed to `startFakePlatform()` when a test runs without one, and refuses a plan the app doesn't declare.
 
 ## Storefront scripts
 

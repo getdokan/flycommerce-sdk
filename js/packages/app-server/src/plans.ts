@@ -34,15 +34,17 @@ export function pageAccess(config: Pick<AppConfig, 'dashboard'>, slug: string, p
     const child = (page.children ?? []).find((candidate) => candidate.slug === slug);
 
     if (child) {
-      const access = own(child);
-      return access !== 'available' ? access : own(page);
+      const states = [own(child), own(page)];
+
+      // Switched off anywhere up the tree wins: no plan could open the page, so "upgrade" is never the reason.
+      return states.includes('inactive') ? 'inactive' : states.includes('plan') ? 'plan' : 'available';
     }
   }
 
   return 'inactive';
 }
 
-/** Where a callback sends the merchant: a path on your appUrl, framed by the dashboard, or a page of the admin. */
+/** Where a callback sends the merchant: a path from the root of your callback's host, framed by the dashboard, or a page of the admin. */
 export type CallbackAnswer = { path: string } | { dashboard: string };
 
 /** A page's `callback`: a store that can't open the page clicked it in the menu. */
@@ -57,7 +59,7 @@ export interface LockedPageCallback extends DashboardSession {
 export interface PlanCallback extends DashboardSession {
   /** The plan asked for: one of your plan keys. */
   plan: string;
-  /** The plan the store is on now. */
+  /** The plan the store is on now: the token's `plan` claim, or your default plan when you pass your app-config.json. */
   currentPlan: string | null;
 }
 
@@ -105,5 +107,5 @@ export async function readPlanCallback(
   }
 
   // The store's plan is the token's, which FlyCommerce signed; the body's copy could be anyone's.
-  return { ...asking, plan, currentPlan: typeof asking.session.plan === 'string' ? asking.session.plan : null };
+  return { ...asking, plan, currentPlan: planOf(appConfig ?? {}, asking.session) };
 }

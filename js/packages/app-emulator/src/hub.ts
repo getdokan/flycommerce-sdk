@@ -8,8 +8,14 @@ export interface RegisteredApp {
   appSecret: string;
   /** The install redirect registered in the developer portal. */
   redirectUri: string;
-  /** The plan keys in the app's app-config.json, default first. With them, a plan the app doesn't declare is refused. */
-  plans?: string[];
+  /** The app's plans from app-config.json; the same as calling declarePlans(). */
+  plans?: DeclaredPlan[];
+}
+
+/** A plan as app-config.json declares it; the one marked default is what a store is on until the app sets another. */
+export interface DeclaredPlan {
+  key: string;
+  default?: boolean;
 }
 
 export interface Installation {
@@ -74,7 +80,7 @@ export class FakeHub {
   private constructor(apps: RegisteredApp[]) {
     for (const app of apps) {
       this.apps.set(app.appId, app);
-      if (app.plans) this.plans.set(app.appId, [...app.plans]);
+      if (app.plans) this.declarePlans(app.appId, app.plans);
     }
   }
 
@@ -152,28 +158,29 @@ export class FakeHub {
     }
   }
 
-  /** The plan keys in the app's app-config.json, default first, so a plan it doesn't declare is refused as FlyCommerce refuses it. */
-  declarePlans(appId: string, keys: string[]): void {
-    this.plans.set(appId, [...keys]);
+  /** The app's plans, as its app-config.json declares them. Kept default first. */
+  declarePlans(appId: string, plans: DeclaredPlan[]): void {
+    const first = plans.find((plan) => plan.default) ?? plans[0];
+
+    this.plans.set(appId, first ? [first.key, ...plans.filter((plan) => plan !== first).map((plan) => plan.key)] : []);
   }
 
-  /** The app telling FlyCommerce the store's plan. False when the app declares plans and this isn't one of them. */
+  /** The app telling FlyCommerce the store's plan. False, as FlyCommerce's 422, for a plan the app doesn't declare. */
   setPlan(appId: string, store: string, plan: string): boolean {
     const installation = this.findInstallation(appId, store);
-    const declared = this.plans.get(appId);
 
-    if (!installation || (declared && !declared.includes(plan))) return false;
+    if (!installation || !(this.plans.get(appId) ?? []).includes(plan)) return false;
 
     installation.plan = plan;
     return true;
   }
 
-  /** The plan a store's tokens carry: what the app set while it still declares it, otherwise the default (the first declared), or null. */
+  /** The plan a store's tokens carry: what the app set while it still declares it, otherwise its default, or null without plans. */
   planOf(appId: string, store: string): string | null {
-    const declared = this.plans.get(appId);
+    const declared = this.plans.get(appId) ?? [];
     const set = this.findInstallation(appId, store)?.plan ?? null;
 
-    return set !== null && (!declared || declared.includes(set)) ? set : (declared?.[0] ?? null);
+    return set !== null && declared.includes(set) ? set : (declared[0] ?? null);
   }
 
   findInstallation(appId: string, store: string): Installation | undefined {

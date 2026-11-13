@@ -183,7 +183,16 @@ Declare plans in `app-config.json`, and say on each page which plans open it. Fl
 ```
 
 ```ts
-import { StoreApi, authenticate, pageAccess, planOf, readLockedPageCallback, readPlanCallback, json } from '@flycommerce/app-server';
+import {
+  HttpError,
+  StoreApi,
+  authenticate,
+  pageAccess,
+  planOf,
+  readLockedPageCallback,
+  readPlanCallback,
+  json,
+} from '@flycommerce/app-server';
 
 // A locked page was clicked: say where the merchant lands. Answer within 3 seconds.
 const callback = await readLockedPageCallback(req, config); // verifies the session token; { store, session, page, reason }
@@ -201,7 +210,7 @@ const { session } = await authenticate(req, config);
 if (pageAccess(appConfig, 'reports', planOf(appConfig, session)) !== 'available') throw new HttpError(403, 'upgrade_required');
 ```
 
-`pageAccess()` answers `available`, `plan` or `inactive` by the rule FlyCommerce applies to the menu, and `planOf()` reads the `plan` claim of a session or shopper token, falling back to your default plan. A callback's `path` may be a page that isn't in `dashboard.pages`; pass it to `serveWebApp({ pages: [...pagePaths(appConfig), '/upgrade'] })`. `readPlanCallback()` refuses anyone but the store's owner. Setting a plan needs the `plan.manage` permission, which your app has while its config declares `plans`. See [`spec/plans.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/plans.md).
+`pageAccess()` answers `available`, `plan` or `inactive` by the rule FlyCommerce applies to the menu, and `planOf()` reads the `plan` claim of a session or shopper token, falling back to your default plan. A callback's `path` is taken from the root of the callback's host (any path prefix in `appUrl` is not added), and may be a page that isn't in `dashboard.pages`; pass it to `serveWebApp({ pages: [...pagePaths(appConfig), '/upgrade'] })`. `readPlanCallback()` refuses anyone but the store's owner. Setting a plan needs the `plan.manage` permission, which your app has while its config declares `plans`. See [`spec/plans.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/plans.md).
 
 ### Storefront scripts
 
