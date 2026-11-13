@@ -79,8 +79,6 @@ Anything else is no answer: a timeout, a status other than `200`, a redirect (ne
 
 A callback URL is a path on `appUrl`, or a URL on `appUrl`'s own address (the same scheme, host and port), with no query string, and at most 2000 characters once joined to `appUrl`. FlyCommerce calls it only over `https` on a public address. Once the app is published, a new or changed callback waits for review; until then stores keep the approved one, and the app's pages keep working. A removed callback stops being called at once.
 
-New or changed `plans`, on the app or on a page, wait for review the same way once the app is published, and apply together when approved: until then stores keep the pages they have, so none is locked out of a page before it can move to the plan that opens it. `isActive` takes effect at once.
-
 `planCallback` is sent only for the store's owner, and only on a store that approved `plan.manage`. An app should still refuse a plan callback whose token isn't the owner's, since any staff member's page holds a session token.
 
 ## Setting a store's plan
