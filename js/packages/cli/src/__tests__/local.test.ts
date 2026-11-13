@@ -103,7 +103,7 @@ describe('flycommerce app dev --local', () => {
     assert.equal(env.FLYCOMMERCE_TOKEN, null);
 
     assert.match(output.stdout, /Installed order-export on local\.flycom\.shop with catalog\.read, orders\.read/);
-    assert.ok(output.stdout.includes(`Dashboard   ${env.FRAME_ANCESTORS}/apps/export`), output.stdout);
+    assert.ok(output.stdout.includes(`Dashboard   ${env.FRAME_ANCESTORS}/\n`), output.stdout);
     assert.match(output.stdout, /Storefront {2}http:\/\/127\.0\.0\.1:\d+\/storefront/);
     assert.doesNotMatch(output.stdout, /Your install callback answered/);
   });

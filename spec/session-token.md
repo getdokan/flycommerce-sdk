@@ -37,6 +37,7 @@ A JWT ([RFC 7519](https://www.rfc-editor.org/rfc/rfc7519)) signed with **RS256**
 | `user_role` | `owner` (the store owner) or `admin` (store staff with admin access): only they can open apps today. `vendor` (a seller on a marketplace store) is reserved for when sellers can. New roles may be added; treat an unknown one as the least privileged. Use it to decide what your app lets this user do. |
 | `app_id` | Your app's ID (same as `aud`) |
 | `installation_id` | This store's installation of your app |
+| `plan` | The key of the plan this store is on for your app, or `null` when the app declares no plans. See [plans.md](plans.md). |
 | `sid` | Identifies the user's dashboard login. Logging out ends tokens from that login. |
 | `iat`, `nbf`, `exp` | Issued at, not before, expiry (Unix seconds) |
 | `jti` | A unique ID for this token |

@@ -71,7 +71,7 @@ flycommerce app dev --local -- npm run dev:server
 
 Nothing reaches FlyCommerce: no sign-in, portal or tunnel. `app dev --local` starts FlyCommerce's emulator (a hub, a store with a few products and orders, and a dashboard), runs your server with your config's `APP_ID` and the emulator's `APP_SECRET`, `HUB_API_URL`, `JWKS_URL`, `ALLOWED_ISSUERS`, `STORE_BASE_URL` and `FRAME_ANCESTORS`, plus `APP_URL` (`http://localhost:<port>`), `REDIRECT_URI`, `PORT` and `APP_CONFIG_FILE` as `app dev` sets them. Once the server listens, it installs the app on the emulated store and prints the dashboard and storefront links. The emulator's values replace your real secret and platform addresses only for that process; `.env` is untouched, and anything else your server needs, like an encryption key, still comes from it.
 
-The install grants every permission the emulator answers for (`catalog.read`, `orders.read`, `orders.write`, `webhooks.manage`, `storefront.scripts`, `storefront.customer`); `--scopes orders.read,catalog.read` grants fewer, to try what a merchant who grants less sees. Everything is in memory and starts fresh on each run. Ctrl+C stops your server and the emulator.
+The install grants every permission the emulator answers for (`catalog.read`, `orders.read`, `orders.write`, `webhooks.manage`, `storefront.scripts`, `storefront.customer`, and `plan.manage` when the config declares `plans`); `--scopes orders.read,catalog.read` grants fewer, to try what a merchant who grants less sees. Everything is in memory and starts fresh on each run. Ctrl+C stops your server and the emulator.
 
 ### Create an app
 

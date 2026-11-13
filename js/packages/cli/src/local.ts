@@ -11,7 +11,15 @@ import { moveOrigins } from './surfaces.js';
 
 export const LOCAL_STORE = 'local.flycom.shop';
 /** Every permission the emulator's store answers for, so each part of the app can be tried. */
-export const LOCAL_SCOPES = ['catalog.read', 'orders.read', 'orders.write', 'webhooks.manage', 'storefront.scripts', 'storefront.customer'];
+export const LOCAL_SCOPES = [
+  'catalog.read',
+  'orders.read',
+  'orders.write',
+  'webhooks.manage',
+  'storefront.scripts',
+  'storefront.customer',
+  'plan.manage',
+];
 
 const READY_TIMEOUT_MS = 60_000;
 const INSTALL_TIMEOUT_MS = 15_000;
@@ -88,7 +96,6 @@ export async function devLocal(ctx: Context, options: LocalOptions): Promise<num
     throw new CliError(`--port must be a port number, like ${DEFAULT_PORT}.`);
   }
 
-  const scopes = options.scopes === undefined ? LOCAL_SCOPES : options.scopes.split(/[\s,]+/).filter(Boolean);
   const file = readConfigFile(ctx, options.config);
   const appUrl = `http://localhost:${port}`;
   const { versionId: _versionId, version: _version, ...config } = file.config;
@@ -98,6 +105,10 @@ export async function devLocal(ctx: Context, options: LocalOptions): Promise<num
   if (problems.length > 0) throw new CliError(`${file.name} is not valid:`, problems);
 
   const resolved = resolveAppConfig(local as unknown as AppConfig);
+  const plans = resolved.plans ?? [];
+  // As FlyCommerce does: an app has plan.manage only while its config declares plans.
+  const everyScope = plans.length > 0 ? LOCAL_SCOPES : LOCAL_SCOPES.filter((scope) => scope !== 'plan.manage');
+  const scopes = options.scopes === undefined ? everyScope : options.scopes.split(/[\s,]+/).filter(Boolean);
   const redirectUri = resolved.install?.redirectUrl ?? `${appUrl}/auth/callback`;
   const appSecret = crypto.randomBytes(24).toString('hex');
 
@@ -115,6 +126,8 @@ export async function devLocal(ctx: Context, options: LocalOptions): Promise<num
       store: LOCAL_STORE,
       pages: resolved.dashboard?.pages ?? [],
       scripts: resolved.storefront?.scripts,
+      plans: resolved.plans,
+      planCallback: resolved.planCallback,
       products: platform.store.store(LOCAL_STORE).productList,
     });
 
@@ -146,7 +159,8 @@ export async function devLocal(ctx: Context, options: LocalOptions): Promise<num
           ? [`Your install callback answered ${answer.status}: its pages may not load until the install works.`]
           : []),
         '',
-        ...(firstPage ? [`Dashboard   ${dashboard!.url}/apps/${firstPage.slug}`] : []),
+        // The root opens the first page this store can use, which a locked first page is not.
+        ...(firstPage ? [`Dashboard   ${dashboard!.url}/`] : []),
         ...(hasScripts ? [`Storefront  ${dashboard!.url}/storefront`] : []),
         `Store API   ${platform.store.url}`,
         ...(!firstPage && !hasScripts

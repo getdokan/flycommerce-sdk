@@ -66,7 +66,7 @@ The contract behind these steps is in [`spec/`](https://github.com/getdokan/flyc
 ## Repository layout
 
 ```
-spec/            the contract: session tokens, webhooks, app-config.json, storefront scripts
+spec/            the contract: session tokens, webhooks, app-config.json, plans, storefront scripts
 js/              the JavaScript packages (npm workspaces)
 ai/claude/       the Claude Code plugins
 .claude-plugin/  the plugin marketplace

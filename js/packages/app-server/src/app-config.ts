@@ -11,7 +11,23 @@ export interface AppConfigPage {
   slug: string;
   label: string;
   path: string;
+  /** The heading the dashboard shows above the page; the label when left out. Up to 80 characters. */
+  title?: string;
+  /** The plan keys that open the page. Left out, every plan opens it. */
+  plans?: string[];
+  /** Your own switch: false locks the page for every store, whatever its plan. */
+  isActive?: boolean;
+  /** Called when a store that can't open the page clicks it: a path on appUrl, or a URL on the same host. */
+  callback?: string;
   children?: AppConfigPage[];
+}
+
+/** A plan the app offers. Exactly one is the default: the plan a store is on until the app changes it. */
+export interface AppConfigPlan {
+  /** Starts with a lower-case letter; up to 40 lower-case letters, numbers and -. */
+  key: string;
+  name: string;
+  default?: boolean;
 }
 
 /** interactive: once the page can be used. idle: when the browser is idle after the page has loaded. */
@@ -41,6 +57,10 @@ export interface AppConfig {
   quote?: string;
   appUrl: string;
   install?: AppConfigInstall;
+  /** Up to 5 plans. Pages name the plans that open them. */
+  plans?: AppConfigPlan[];
+  /** Called when a store's owner asks for another plan: a path on appUrl, or a URL on the same host. */
+  planCallback?: string;
   dashboard: { pages: AppConfigPage[] };
   storefront?: { scripts: AppConfigScript[] };
 }
@@ -55,7 +75,7 @@ export class AppConfigError extends Error {
   }
 }
 
-const KEYS = ['appId', 'versionId', 'version', 'quote', 'appUrl', 'install', 'dashboard', 'storefront'];
+const KEYS = ['appId', 'versionId', 'version', 'quote', 'appUrl', 'install', 'plans', 'planCallback', 'dashboard', 'storefront'];
 const MAX_PAGES = 20;
 const SLUG = /^[A-Za-z0-9_-]{1,100}$/;
 const PATH = /^\/[^\s?#]*$/;
@@ -65,6 +85,10 @@ const HANDLE = /^[a-z0-9-]{1,40}$/;
 const LOADS: ScriptLoad[] = ['interactive', 'idle'];
 // FlyCommerce keeps the redirect URL, joined to appUrl, in 255 characters.
 const MAX_REDIRECT_URL = 255;
+const MAX_PLANS = 5;
+const PLAN_KEY = /^[a-z][a-z0-9-]{0,39}$/;
+const MAX_TITLE = 80;
+const MAX_CALLBACK_URL = 2000;
 
 /**
  * Reads and checks app-config.json, with the rules FlyCommerce applies when it is uploaded, so a broken file
@@ -124,6 +148,16 @@ export function checkAppConfig(value: unknown): string[] {
     problems.push(...checkInstall(config.install, config.appUrl));
   }
 
+  // null: `plans` is there but broken, so what depends on it isn't judged against an empty list.
+  const plans = checkPlans(config.plans, problems);
+
+  if (config.planCallback !== undefined) {
+    problems.push(...checkCallback(config.planCallback, config.appUrl, 'planCallback'));
+    if (config.plans === undefined) {
+      problems.push('planCallback is called when a store asks to change plan. Declare plans too.');
+    }
+  }
+
   const dashboard = config.dashboard as { pages?: unknown } | undefined;
 
   if (typeof dashboard !== 'object' || dashboard === null || !Array.isArray(dashboard.pages)) {
@@ -131,7 +165,7 @@ export function checkAppConfig(value: unknown): string[] {
   } else if (Object.keys(dashboard).some((key) => key !== 'pages')) {
     problems.push('dashboard takes only pages.');
   } else {
-    problems.push(...checkPages(dashboard.pages));
+    problems.push(...checkPages(dashboard.pages, plans, config.appUrl));
   }
 
   if (config.storefront !== undefined) {
@@ -141,7 +175,7 @@ export function checkAppConfig(value: unknown): string[] {
   return problems;
 }
 
-/** The config with script srcs and the install redirect as URLs on appUrl (or the one given), as FlyCommerce stores them. */
+/** The config with script srcs, callbacks and the install redirect as URLs on appUrl (or the one given), as FlyCommerce stores them. */
 export function resolveAppConfig(config: AppConfig, options: { appUrl?: string } = {}): AppConfig {
   const appUrl = options.appUrl ?? config.appUrl;
   const resolved: AppConfig = { ...config, appUrl };
@@ -154,6 +188,19 @@ export function resolveAppConfig(config: AppConfig, options: { appUrl?: string }
       ...config.storefront,
       scripts: config.storefront.scripts.map((script) => ({ ...script, src: resolveOnAppUrl(script.src, appUrl) })),
     };
+  }
+  if (config.planCallback !== undefined) {
+    resolved.planCallback = resolveOnAppUrl(config.planCallback, appUrl);
+  }
+
+  const withCallback = (page: AppConfigPage): AppConfigPage => ({
+    ...page,
+    ...(page.callback !== undefined ? { callback: resolveOnAppUrl(page.callback, appUrl) } : {}),
+    ...(page.children ? { children: page.children.map(withCallback) } : {}),
+  });
+  // A config that hasn't been checked may lack dashboard; what it has is still resolved.
+  if (Array.isArray(config.dashboard?.pages)) {
+    resolved.dashboard = { ...config.dashboard, pages: config.dashboard.pages.map(withCallback) };
   }
 
   return resolved;
@@ -295,7 +342,91 @@ function checkStorefront(storefront: unknown, appUrl: unknown): string[] {
   return problems;
 }
 
-/** A path on appUrl, or an absolute URL on its host: script srcs and the install redirect. */
+/** Declared plan keys, with every problem in the list added to `problems`; null when the list itself is unusable. */
+function checkPlans(plans: unknown, problems: string[]): string[] | null {
+  if (plans === undefined) {
+    return [];
+  }
+  if (!Array.isArray(plans) || plans.length === 0 || plans.length > MAX_PLANS) {
+    problems.push(`plans must be a list of 1 to ${MAX_PLANS} plans.`);
+    return null;
+  }
+
+  const keys: string[] = [];
+  let defaults = 0;
+
+  plans.forEach((plan, index) => {
+    const where = `plans[${index}]`;
+
+    if (typeof plan !== 'object' || plan === null || Array.isArray(plan)) {
+      problems.push(`${where} must be an object.`);
+      return;
+    }
+
+    const { key, name, default: isDefault, ...rest } = plan as Record<string, unknown>;
+
+    if (Object.keys(rest).length > 0) {
+      problems.push(`${where} does not take ${Object.keys(rest).join(', ')}.`);
+    }
+    if (typeof key !== 'string' || !PLAN_KEY.test(key)) {
+      problems.push(`${where}.key must start with a lower-case letter and have up to 40 lower-case letters, numbers and -.`);
+    } else {
+      keys.push(key);
+    }
+    if (typeof name !== 'string' || name.trim() === '' || name.length > 40) {
+      problems.push(`${where}.name must be text of up to 40 characters.`);
+    }
+    if (isDefault !== undefined && typeof isDefault !== 'boolean') {
+      problems.push(`${where}.default must be true or false.`);
+    }
+    if (isDefault === true) defaults++;
+  });
+
+  const repeated = [...new Set(keys.filter((key, index) => keys.indexOf(key) !== index))];
+
+  if (repeated.length > 0) {
+    problems.push(`Each plan needs its own key; repeated: ${repeated.join(', ')}.`);
+  }
+  if (defaults !== 1) {
+    problems.push('Mark exactly one plan as default: the plan a store is on until it switches.');
+  }
+
+  return keys;
+}
+
+/** A callback carries the merchant's session token, so beyond the URL rules it takes no query string. */
+function checkCallback(value: unknown, appUrl: unknown, where: string): string[] {
+  const problems = checkUrlOnApp(value, appHostOf(appUrl), where);
+
+  if (problems.length > 0) return problems;
+
+  const callback = value as string;
+
+  if (callback.includes('?')) return [`${where} must not have a query string.`];
+  if (typeof appUrl !== 'string') return [];
+
+  // The session token goes to the app's own address: another port of its host is another service.
+  const appOrigin = originOf(appUrl);
+
+  // An appUrl that isn't a URL is reported on its own; there is nothing to compare a callback with.
+  if (appOrigin !== null && !isPath(callback) && originOf(callback) !== appOrigin) {
+    return [`${where} must be on ${withoutTrailingSlashes(appUrl)}, port included.`];
+  }
+
+  return resolveOnAppUrl(callback, appUrl).length > MAX_CALLBACK_URL
+    ? [`${where} is at most ${MAX_CALLBACK_URL} characters once joined to appUrl.`]
+    : [];
+}
+
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** A path on appUrl, or an absolute URL on its host: script srcs, callbacks and the install redirect. */
 function checkUrlOnApp(value: unknown, appHost: string | null, where: string): string[] {
   if (typeof value !== 'string' || value === '' || value.length > 2000) {
     return [`${where} must be a path or a URL of up to 2000 characters.`];
@@ -334,7 +465,7 @@ function checkUrlOnApp(value: unknown, appHost: string | null, where: string): s
   return [];
 }
 
-function checkPages(pages: unknown[]): string[] {
+function checkPages(pages: unknown[], plans: string[] | null, appUrl: unknown): string[] {
   const problems: string[] = [];
   const slugs: string[] = [];
 
@@ -348,7 +479,7 @@ function checkPages(pages: unknown[]): string[] {
       return;
     }
 
-    const { slug, label, path, children, ...rest } = page as Record<string, unknown>;
+    const { slug, label, path, title, plans: opensOn, isActive, callback, children, ...rest } = page as Record<string, unknown>;
 
     if (Object.keys(rest).length > 0) {
       problems.push(`${where} does not take ${Object.keys(rest).join(', ')}.`);
@@ -363,6 +494,26 @@ function checkPages(pages: unknown[]): string[] {
     }
     if (typeof path !== 'string' || !PATH.test(path)) {
       problems.push(`${where}.path must start with / and have no spaces, query string or #.`);
+    }
+    if (title !== undefined && (typeof title !== 'string' || title.trim() === '' || title.length > MAX_TITLE)) {
+      problems.push(`${where}.title must be text of up to ${MAX_TITLE} characters.`);
+    }
+    if (isActive !== undefined && typeof isActive !== 'boolean') {
+      problems.push(`${where}.isActive must be true or false.`);
+    }
+    if (opensOn !== undefined) {
+      if (!Array.isArray(opensOn) || opensOn.length === 0 || opensOn.some((plan) => typeof plan !== 'string')) {
+        problems.push(`${where}.plans must be a list of plan keys.`);
+      } else if (plans !== null) {
+        const undeclared = opensOn.filter((plan) => !plans.includes(plan));
+
+        if (undeclared.length > 0) {
+          problems.push(`${where}.plans names plans this app doesn't declare: ${undeclared.join(', ')}.`);
+        }
+      }
+    }
+    if (callback !== undefined) {
+      problems.push(...checkCallback(callback, appUrl, `${where}.callback`));
     }
     if (children !== undefined) {
       if (nested) {

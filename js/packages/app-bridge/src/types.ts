@@ -98,6 +98,8 @@ export interface SessionTokenPayload {
   user_role: string;
   app_id: string;
   installation_id: number;
+  /** The key of the plan this store is on for your app; null or absent when the app declares no plans. */
+  plan?: string | null;
   iat: number;
   nbf: number;
   exp: number;
@@ -129,6 +131,8 @@ export interface ShopperTokenPayload {
   signed_in: boolean;
   /** The store's id for the customer, only when the merchant granted `storefront.customer`. */
   customer_id: number | null;
+  /** The key of the plan this store is on for your app; null or absent when the app declares no plans. */
+  plan?: string | null;
   iat: number;
   nbf: number;
   exp: number;

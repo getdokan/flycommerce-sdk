@@ -62,10 +62,12 @@ export async function dev(ctx: Context, portal: string, options: DevOptions): Pr
     const problems = checkAppConfig(pushed);
 
     if (problems.length > 0) {
-      const absoluteSrc = problems.some((problem) => /^storefront\.scripts\[\d+\]\.src must be on /.test(problem));
+      const pinned = problems.some((problem) =>
+        /^(storefront\.scripts\[\d+\]\.src|planCallback|dashboard\.pages\S*\.callback) must be on /.test(problem)
+      );
       throw new CliError(
         `${file.name} doesn't work with appUrl ${appUrl}:`,
-        absoluteSrc ? [...problems, 'Write each script src as a path, like /storefront/widget.js, so it follows appUrl.'] : problems
+        pinned ? [...problems, 'Write each script src and callback as a path, like /storefront/widget.js, so it follows appUrl.'] : problems
       );
     }
 

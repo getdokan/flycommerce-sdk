@@ -1,6 +1,6 @@
 import net from 'node:net';
 
-/** The config with appUrl replaced, and script srcs and the install redirect on any of `origins` moved onto it. */
+/** The config with appUrl replaced, and script srcs, callbacks and the install redirect on any of `origins` moved onto it. */
 export function moveOrigins(config: Record<string, unknown>, appUrl: string, origins: string[]): Record<string, unknown> {
   const move = (value: unknown) => {
     if (typeof value !== 'string') return value;
@@ -14,10 +14,23 @@ export function moveOrigins(config: Record<string, unknown>, appUrl: string, ori
 
   const install = config.install as { redirectUrl?: unknown } | undefined;
   const storefront = config.storefront as { scripts?: { src?: unknown }[] } | undefined;
+  const dashboard = config.dashboard as { pages?: unknown } | undefined;
+  const movePage = (page: unknown): unknown => {
+    if (typeof page !== 'object' || page === null) return page;
+    const { callback, children } = page as { callback?: unknown; children?: unknown };
+
+    return {
+      ...page,
+      ...(callback !== undefined ? { callback: move(callback) } : {}),
+      ...(Array.isArray(children) ? { children: children.map(movePage) } : {}),
+    };
+  };
 
   return {
     ...config,
     appUrl,
+    ...(config.planCallback !== undefined ? { planCallback: move(config.planCallback) } : {}),
+    ...(dashboard && Array.isArray(dashboard.pages) ? { dashboard: { ...dashboard, pages: dashboard.pages.map(movePage) } } : {}),
     ...(install && typeof install === 'object' && install.redirectUrl !== undefined
       ? { install: { ...install, redirectUrl: move(install.redirectUrl) } }
       : {}),
@@ -58,6 +71,16 @@ export function releaseProblems(config: Record<string, unknown>): string[] {
 
   urls.push(['install.redirectUrl', install?.redirectUrl]);
   scripts.forEach((script, index) => urls.push([`storefront.scripts[${index}].src`, script?.src]));
+  urls.push(['planCallback', config.planCallback]);
+
+  const pages = (config.dashboard as { pages?: unknown } | undefined)?.pages;
+
+  (Array.isArray(pages) ? pages : []).forEach((page: { callback?: unknown; children?: unknown } | null, index) => {
+    urls.push([`dashboard.pages[${index}].callback`, page?.callback]);
+    (Array.isArray(page?.children) ? page.children : []).forEach((child: { callback?: unknown } | null, at: number) =>
+      urls.push([`dashboard.pages[${index}].children[${at}].callback`, child?.callback])
+    );
+  });
 
   const problems: string[] = [];
 
