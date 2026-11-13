@@ -166,7 +166,7 @@ async function planRelease(ctx: Context, portal: string, options: ReleaseOptions
     throw new CliError(`${file.name} can't be released:`, [
       ...unreachable,
       "Stores load the app from appUrl, so a release needs the app's public https address. app dev puts the tunnel in appUrl on its own, and app dev --local uses this computer, so neither needs it here.",
-      'Write script srcs and install.redirectUrl as paths, like /storefront/welcome.js, so they follow appUrl.',
+      'Write script srcs, callbacks and install.redirectUrl as paths, like /storefront/welcome.js, so they follow appUrl.',
     ]);
   }
 

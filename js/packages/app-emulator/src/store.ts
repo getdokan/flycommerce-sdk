@@ -429,6 +429,26 @@ export class FakeStore {
       return this.actOnOrder(res, fixture, decodeURIComponent(orderAction[1]), orderAction[2]);
     }
 
+    // The app saying which of its plans this store is on. Only the app itself: no person's token may set a plan.
+    if (route === 'PUT /api/v1/app-installation/plan') {
+      if (!grant.scopes.includes('plan.manage')) {
+        return sendJson(res, 403, { message: 'This app has not been granted plan.manage.' });
+      }
+      if (grant.user) {
+        return sendJson(res, 403, { message: 'This endpoint cannot be called with a user access token. Use the app access token.' });
+      }
+
+      const plan = (body as { plan?: unknown } | undefined)?.plan;
+
+      if (typeof plan !== 'string' || plan === '') {
+        return sendJson(res, 422, { message: 'The plan field is required.', errors: { plan: ['The plan field is required.'] } });
+      }
+
+      return this.hub.setPlan(grant.appId, grant.store, plan)
+        ? sendJson(res, 200, { data: { plan } })
+        : sendJson(res, 422, { message: `This app has no ${plan} plan.` });
+    }
+
     if (route === 'GET /api/v1/integrations/webhooks') {
       if (!this.allowed(res, grant, 'webhooks.manage', 'integration.view')) return;
       // An app sees only its own subscriptions.

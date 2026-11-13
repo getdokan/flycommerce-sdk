@@ -236,4 +236,97 @@ describe('paths and the install redirect in app-config.json', () => {
     assert.strictEqual(tunnel.storefront?.scripts[0].src, 'https://quiet-fox.trycloudflare.com/storefront/welcome.js');
     assert.strictEqual(config.storefront?.scripts[0].src, '/storefront/welcome.js', 'the input is left as it was');
   });
+
+  describe('plans and page conditions', () => {
+    const plans = [
+      { key: 'free', name: 'Free', default: true },
+      { key: 'pro', name: 'Pro' },
+    ];
+    const page = (extra: Record<string, unknown>) => ({
+      plans,
+      dashboard: { pages: [{ slug: 'reports', label: 'Reports', path: '/reports', ...extra }] },
+    });
+    const problemsOf = (changes: Record<string, unknown>) => checkAppConfig(withChanges(changes)).join('\n');
+
+    it('accepts plans, a plan callback, and a page’s title, plans, isActive and callback', () => {
+      const config = withChanges({
+        ...page({ title: 'Sales reports', plans: ['pro'], isActive: false, callback: '/callbacks/reports-locked' }),
+        planCallback: 'https://crm.example.com/callbacks/plan',
+      });
+
+      assert.deepStrictEqual(checkAppConfig(config), []);
+    });
+
+    it('resolves callbacks onto appUrl, sub-pages included', () => {
+      const resolved = resolveAppConfig(
+        withChanges({
+          plans,
+          planCallback: '/callbacks/plan',
+          dashboard: {
+            pages: [
+              {
+                slug: 'a',
+                label: 'A',
+                path: '/a',
+                callback: '/cb/a',
+                children: [{ slug: 'b', label: 'B', path: '/b', callback: '/cb/b' }],
+              },
+            ],
+          },
+        }) as AppConfig,
+        { appUrl: 'https://tunnel.example.dev/' }
+      );
+
+      assert.strictEqual(resolved.planCallback, 'https://tunnel.example.dev/callbacks/plan');
+      assert.strictEqual(resolved.dashboard.pages[0].callback, 'https://tunnel.example.dev/cb/a');
+      assert.strictEqual(resolved.dashboard.pages[0].children?.[0].callback, 'https://tunnel.example.dev/cb/b');
+    });
+
+    it('needs exactly one default plan, distinct keys that start with a letter, and at most five', () => {
+      assert.match(problemsOf({ plans: [{ key: 'free', name: 'Free' }] }), /exactly one plan as default/);
+      assert.match(problemsOf({ plans: plans.map((plan) => ({ ...plan, default: true })) }), /exactly one plan as default/);
+      assert.match(problemsOf({ plans: [{ key: '1st', name: 'First', default: true }] }), /start with a lower-case letter/);
+      assert.match(problemsOf({ plans: [plans[0], { ...plans[1], key: 'free' }] }), /own key; repeated: free/);
+      assert.match(problemsOf({ plans: [] }), /1 to 5 plans/);
+      assert.match(problemsOf({ plans: [{ ...plans[0], price: 5 }] }), /does not take price/);
+    });
+
+    it('reports a broken plans list once, without follow-on problems about what depends on it', () => {
+      const problems = checkAppConfig(
+        withChanges({ ...page({ plans: ['pro'] }), plans: [...plans, ...plans, ...plans], planCallback: '/callbacks/plan' })
+      );
+
+      assert.deepStrictEqual(problems, ['plans must be a list of 1 to 5 plans.']);
+    });
+
+    it('holds a callback to the app’s own port and length, and refuses a blank title or plan name', () => {
+      assert.match(
+        problemsOf(page({ callback: 'https://crm.example.com:8443/cb' })),
+        /must be on https:\/\/crm\.example\.com, port included/
+      );
+      assert.deepStrictEqual(checkAppConfig(withChanges(page({ callback: 'https://crm.example.com:443/cb' }))), []);
+      assert.match(problemsOf(page({ callback: `/${'a'.repeat(1990)}` })), /at most 2000 characters once joined/);
+      assert.match(problemsOf(page({ title: '   ' })), /title must be text/);
+      assert.match(problemsOf({ plans: [{ key: 'free', name: ' ', default: true }] }), /name must be text/);
+    });
+
+    it('resolves what an unchecked config has, even without dashboard', () => {
+      const resolved = resolveAppConfig({ appId: 'a', appUrl: 'https://crm.example.com', planCallback: '/cb' } as unknown as AppConfig);
+
+      assert.strictEqual(resolved.planCallback, 'https://crm.example.com/cb');
+      assert.strictEqual(resolved.dashboard, undefined);
+    });
+
+    it('holds a page to declared plans and a callback to the app’s own host', () => {
+      assert.match(problemsOf(page({ plans: ['gold'] })), /doesn't declare: gold/);
+      assert.match(problemsOf({ dashboard: page({ plans: ['pro'] }).dashboard }), /doesn't declare: pro/);
+      assert.match(problemsOf(page({ plans: [] })), /list of plan keys/);
+      assert.match(problemsOf(page({ isActive: 'no' })), /isActive must be true or false/);
+      assert.match(problemsOf(page({ title: 'x'.repeat(81) })), /title must be text of up to 80/);
+      assert.match(problemsOf(page({ callback: 'https://elsewhere.example.com/cb' })), /callback must be on crm.example.com/);
+      assert.match(problemsOf(page({ callback: '/cb?store=1' })), /callback must not have a query string/);
+      assert.match(problemsOf({ plans, planCallback: '//elsewhere.example.com/cb' }), /planCallback must be a path/);
+      assert.match(problemsOf({ planCallback: '/callbacks/plan' }), /Declare plans too/);
+    });
+  });
 });

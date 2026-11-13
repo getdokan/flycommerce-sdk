@@ -92,6 +92,7 @@ It's an RS256 JWT signed with the same keys as session tokens ([session-token.md
 | `store_domain`, `marketplace_id`, `installation_id` | The store and your installation |
 | `signed_in` | `true` only for a customer's own sign-in. Store staff, and support signed in as a customer, are guests |
 | `customer_id` | The store's id for the customer, only if the merchant granted `storefront.customer`; otherwise `null` |
+| `plan` | The key of the plan this store is on for your app, or `null` when the app declares no plans. See [plans.md](plans.md). |
 
 It identifies; it isn't a login, and no store API accepts it. With `customer_id`, read that customer's orders as your app (`GET /api/v1/orders?filters[customerId]=…`, `orders.read`), and show them only their own.
 

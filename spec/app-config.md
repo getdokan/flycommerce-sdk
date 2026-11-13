@@ -1,6 +1,6 @@
 # app-config.json
 
-The file that describes an app to FlyCommerce: where it's served, its dashboard pages, its storefront scripts and its install redirect. It lives in the app's repository and is uploaded on release, from the CLI or the developer portal. FlyCommerce and every SDK check it with the same rules.
+The file that describes an app to FlyCommerce: where it's served, its dashboard pages, its plans, its storefront scripts and its install redirect. It lives in the app's repository and is uploaded on release, from the CLI or the developer portal. FlyCommerce and every SDK check it with the same rules.
 
 ## Environments
 
@@ -38,7 +38,9 @@ The files differ in `appId`, and `appUrl` when the environment has a fixed one. 
 | `appUrl` | Required. Where the app is served: `https`, with no query string or `#`. Plain `http` only for `localhost`, `127.0.0.1`, `[::1]` and `.test` hosts, which FlyCommerce accepts only in local environments. |
 | `install` | Optional. Takes only `redirectUrl`. |
 | `install.redirectUrl` | Where installs are sent back with their one-time code: a path on `appUrl`, or an `https` URL on `appUrl`'s host. When present, releasing or pushing the file sets the app's redirect URL, and the portal shows it as set by `app-config.json`. It's kept exactly as written, since the install exchange compares it byte for byte: an ASCII host (an international domain in its `xn--` form), and at most 255 characters once joined to `appUrl`. |
-| `dashboard.pages` | Required, may be empty. Up to 20 pages, each `{ slug, label, path, children? }`. See below. |
+| `plans` | Optional. 1 to 5 plans, each `{ key, name, default? }`. See [plans.md](plans.md). |
+| `planCallback` | Optional, and only with `plans`. Called when a store's owner asks for another plan: a path on `appUrl`, or a URL on `appUrl`'s own address, port included, with no query string. See [plans.md](plans.md). |
+| `dashboard.pages` | Required, may be empty. Up to 20 pages, each `{ slug, label, path, title?, plans?, isActive?, callback?, children? }`. See below. |
 | `storefront.scripts` | Optional. Up to 3 scripts. See [storefront-scripts.md](storefront-scripts.md). |
 
 No other keys are accepted.
@@ -50,13 +52,17 @@ No other keys are accepted.
 | `slug` | Letters, numbers, `-` and `_`, up to 100 characters, unique across pages and sub-pages. |
 | `label` | 1 to 40 characters. |
 | `path` | Starts with `/`, with no spaces, `?` or `#`. The dashboard frames `appUrl` + `path`. |
+| `title` | Optional. 1 to 80 characters, not blank: the heading the dashboard shows above the page, until the page sets its own through the bridge. The `label` when left out. |
+| `plans` | Optional. A list of at least one declared plan key: the plans that open the page. Left out, every plan opens it. |
+| `isActive` | Optional, `true` or `false`. `false` locks the page for every store, whatever its plan. |
+| `callback` | Optional. Called when a store that can't open the page clicks it: a path on `appUrl`, or a URL on `appUrl`'s own address, port included, with no query string. See [plans.md](plans.md). |
 | `children` | Sub-pages, one level deep, with the same keys except `children`. |
 
 ## Paths and URLs
 
-A script `src` and `install.redirectUrl` take either form:
+A script `src`, a `callback`, `planCallback` and `install.redirectUrl` take either form:
 
 - **A path**, the recommended form: starts with a single `/` (not `//`), with no `\`, `#` or spaces. It's resolved by appending it to `appUrl` with any trailing `/` removed, the same way as a page's `path`: `https://export.example.com` + `/storefront/welcome.js`.
 - **An absolute URL**: `https` (plain `http` only for the local hosts above), on the same host as `appUrl`, with no user name or password, `\` or `#`.
 
-Either is at most 2000 characters. FlyCommerce stores every page, script and redirect as an absolute URL, so a later change to `appUrl` takes effect only through a release or a development push.
+Either is at most 2000 characters. FlyCommerce stores every page, script, callback and redirect as an absolute URL, so a later change to `appUrl` takes effect only through a release or a development push.

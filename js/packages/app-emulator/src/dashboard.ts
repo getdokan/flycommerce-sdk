@@ -1,5 +1,5 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
-import { HostPageEntry, hostPage } from './dashboard-page.js';
+import { HostPageEntry, HostPlan, hostPage } from './dashboard-page.js';
 import { FakeHub } from './hub.js';
 import { RunningServer, escapeHtml, sendHtml, sendJson, serve } from './net.js';
 import { StorefrontProduct, StorefrontScriptConfig, storefrontPage } from './storefront-page.js';
@@ -11,7 +11,7 @@ function withoutTrailingSlashes(value: string): string {
   return value.slice(0, end);
 }
 
-export type { HostPageEntry, StorefrontScriptConfig };
+export type { HostPageEntry, HostPlan, StorefrontScriptConfig };
 
 export interface ExampleDashboardOptions {
   hub: FakeHub;
@@ -22,6 +22,10 @@ export interface ExampleDashboardOptions {
   store: string;
   /** The app's dashboard.pages from app-config.json: each is framed at appUrl + its path. */
   pages: HostPageEntry[];
+  /** The app's plans from app-config.json. With them, pages lock by plan and the menu offers the owner a switch. */
+  plans?: HostPlan[];
+  /** The app's planCallback from app-config.json: asked where to send the owner who picks another plan. */
+  planCallback?: string;
   /** The app's storefront.scripts from app-config.json; /storefront then runs them on an example store page. A path src is resolved against appUrl. */
   scripts?: StorefrontScriptConfig[];
   userId?: string;
@@ -38,6 +42,13 @@ export interface ExampleDashboardOptions {
 const ROLES = ['owner', 'admin'];
 // Each role is a different user, as in a real store; one user switching roles would share one user access token.
 const ROLE_USERS: Record<string, string> = { owner: '1', admin: '2' };
+// How long FlyCommerce waits for a callback before showing its own notice.
+const CALLBACK_TIMEOUT_MS = 3000;
+
+/** As FlyCommerce resolves a script src or a callback: a path is appended to appUrl, a URL is taken as it is. */
+const onAppUrl = (base: string, value: string): string => (value.startsWith('/') && !value.startsWith('//') ? base + value : value);
+
+type Landing = { frameUrl: string } | { dashboard: string } | { notice: true };
 
 /** A stand-in for the merchant dashboard: frames the app's pages and answers the bridge like the real one does, and runs its storefront scripts on /storefront. */
 export class ExampleDashboard {
@@ -47,6 +58,13 @@ export class ExampleDashboard {
 
   static async start(options: ExampleDashboardOptions): Promise<ExampleDashboard> {
     const dashboard = new ExampleDashboard(options);
+    const plans = options.plans ?? [];
+
+    if (plans.length > 0) {
+      const first = plans.find((plan) => plan.default) ?? plans[0];
+      options.hub.declarePlans(options.appId, [first.key, ...plans.filter((plan) => plan !== first).map((plan) => plan.key)]);
+    }
+
     dashboard.server = await serve((req, res, url) => dashboard.route(req, res, url), options.port);
     return dashboard;
   }
@@ -61,19 +79,93 @@ export class ExampleDashboard {
     this.server = null;
   }
 
-  private route(req: IncomingMessage, res: ServerResponse, url: URL): void {
+  /** Every page and sub-page, in menu order. */
+  private get pages(): HostPageEntry[] {
+    return this.options.pages.flatMap((page) => [page, ...(page.children ?? [])]);
+  }
+
+  /** FlyCommerce's rule for the menu; a sub-page that is open on its own follows a locked parent. */
+  private access(page: HostPageEntry): 'available' | 'plan' | 'inactive' {
+    const plan = this.options.hub.planOf(this.options.appId, this.options.store);
+    const own = (entry: HostPageEntry) =>
+      entry.isActive === false
+        ? 'inactive'
+        : entry.plans === undefined || (plan !== null && entry.plans.includes(plan))
+          ? 'available'
+          : 'plan';
+    const parent = this.options.pages.find((candidate) => (candidate.children ?? []).includes(page));
+    const access = own(page);
+
+    return access === 'available' && parent ? own(parent) : access;
+  }
+
+  /** Where an app may send a merchant: under /admin, read without the query string and percent-decoded. */
+  private static isAdminPath(path: string): boolean {
+    // eslint-disable-next-line no-control-regex
+    if (path.length > 2000 || /[\s#\\\u0000-\u001f\u007f]/.test(path)) return false;
+
+    try {
+      const route = decodeURIComponent(path.split('?')[0]);
+      return /^\/admin(\/|$)/.test(route) && !route.includes('//') && !route.split('/').includes('..');
+    } catch {
+      return false;
+    }
+  }
+
+  /** Asks the app where to send the merchant, as FlyCommerce does: its session token, 3 seconds, no redirects followed. */
+  private async ask(callback: string | undefined, role: string, body: Record<string, unknown>): Promise<Landing> {
+    if (!callback) return { notice: true };
+
+    const { options } = this;
+    const base = withoutTrailingSlashes(options.appUrl);
+    const target = onAppUrl(base, callback);
+
+    try {
+      const response = await fetch(target, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: `Bearer ${options.hub.sessionToken({ appId: options.appId, store: options.store, userId: options.userId ?? ROLE_USERS[role], role })}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(CALLBACK_TIMEOUT_MS),
+      });
+      if (response.status !== 200) await response.body?.cancel();
+      const answer = response.status === 200 ? ((await response.json().catch(() => null)) as Record<string, unknown> | null) : null;
+      const path = answer?.path;
+      const dashboard = answer?.dashboard;
+
+      // One leading slash keeps the frame on the app's host.
+      // eslint-disable-next-line no-control-regex
+      if (typeof path === 'string' && path.length <= 2000 && /^\/(?!\/)[^\s\\#\u0000-\u001f\u007f]*$/.test(path)) {
+        return { frameUrl: new URL(target).origin + path };
+      }
+      if (typeof dashboard === 'string' && ExampleDashboard.isAdminPath(dashboard)) {
+        return { dashboard };
+      }
+    } catch {
+      // An app that is down or slow gets the notice, like any unusable answer.
+    }
+
+    return { notice: true };
+  }
+
+  private async route(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
     const { options } = this;
     const role = ROLES.includes(url.searchParams.get('role') ?? '') ? url.searchParams.get('role')! : 'owner';
 
     const base = withoutTrailingSlashes(options.appUrl);
     // As FlyCommerce does with a path src: appended to appUrl.
-    const scripts = (options.scripts ?? []).map((script) =>
-      script.src.startsWith('/') && !script.src.startsWith('//') ? { ...script, src: base + script.src } : script
-    );
+    const scripts = (options.scripts ?? []).map((script) => ({ ...script, src: onAppUrl(base, script.src) }));
 
     if (req.method === 'GET' && url.pathname === '/') {
       res.writeHead(302, {
-        Location: options.pages.length === 0 && scripts.length > 0 ? '/storefront' : `/apps/${options.pages[0]?.slug ?? ''}`,
+        Location:
+          options.pages.length === 0 && scripts.length > 0
+            ? '/storefront'
+            : `/apps/${(this.pages.find((candidate) => this.access(candidate) === 'available') ?? this.pages[0])?.slug ?? ''}`,
       });
       res.end();
       return;
@@ -121,27 +213,83 @@ export class ExampleDashboard {
 
     const page = /^\/apps\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
 
+    const plans = options.plans ?? [];
+    // As FlyCommerce: a plan switch only where the app has a plan callback and the store let it set the plan.
+    const canSwitch =
+      options.planCallback !== undefined &&
+      (options.hub.findInstallation(options.appId, options.store)?.scopes.includes('plan.manage') ?? false);
+    const host = (slug: string, landing?: { url: string; heading: string }) =>
+      hostPage({
+        appId: options.appId,
+        appName: options.appName,
+        appUrl: options.appUrl,
+        store: options.store,
+        slug,
+        pages: this.pages,
+        locked: this.pages.filter((candidate) => this.access(candidate) !== 'available').map((candidate) => candidate.slug),
+        landingUrl: landing?.url,
+        heading: landing?.heading,
+        plans: plans.length > 0 ? { all: plans, current: options.hub.planOf(options.appId, options.store), canSwitch } : undefined,
+        storefront: scripts.length > 0,
+        role,
+        roles: ROLES,
+        locale: options.locale ?? 'en',
+        theme: options.theme ?? 'light',
+      });
+    const notice = (what: string, why: string) =>
+      sendHtml(
+        res,
+        200,
+        `<!doctype html><h1>${escapeHtml(what)} isn’t available right now</h1><p>${escapeHtml(why)}</p><p><a href="/">Back to the app</a></p>`
+      );
+    const land = (landing: Landing, slug: string, heading: string, why: string) => {
+      if ('frameUrl' in landing) return sendHtml(res, 200, host(slug, { url: landing.frameUrl, heading }));
+      if ('dashboard' in landing) {
+        // A header takes ASCII only; what is already ASCII, percent-escapes included, goes as the app wrote it.
+        res.writeHead(302, { Location: landing.dashboard.replace(/[^\x20-\x7e]/g, (char) => encodeURIComponent(char)) });
+        return void res.end();
+      }
+
+      return notice(heading, why);
+    };
+
     if (req.method === 'GET' && page) {
-      if (!options.pages.some((candidate) => candidate.slug === page[1])) {
+      const entry = this.pages.find((candidate) => candidate.slug === page[1]);
+
+      if (!entry) {
         return sendHtml(res, 404, `<!doctype html><p>This app has no page "${escapeHtml(page[1])}".</p>`);
       }
 
-      return sendHtml(
-        res,
-        200,
-        hostPage({
-          appId: options.appId,
-          appName: options.appName,
-          appUrl: options.appUrl,
-          store: options.store,
-          slug: page[1],
-          pages: options.pages,
-          storefront: scripts.length > 0,
-          role,
-          roles: ROLES,
-          locale: options.locale ?? 'en',
-          theme: options.theme ?? 'light',
-        })
+      const access = this.access(entry);
+
+      if (access === 'available') {
+        return sendHtml(res, 200, host(entry.slug));
+      }
+
+      // A locked page is never framed: the app's callback says where the merchant lands instead.
+      return land(
+        await this.ask(entry.callback, role, { page: entry.slug, reason: access }),
+        entry.slug,
+        entry.title ?? entry.label,
+        access === 'plan'
+          ? `It isn’t part of this store’s plan for ${options.appName}.`
+          : `${options.appName} has switched this page off for now.`
+      );
+    }
+
+    // The owner picking another plan: the app is asked where to send them, and sets the plan itself.
+    if (req.method === 'GET' && url.pathname === '/plan-change') {
+      const plan = url.searchParams.get('plan') ?? '';
+
+      if (role !== 'owner' || !canSwitch || !plans.some((candidate) => candidate.key === plan)) {
+        return sendHtml(res, 403, '<!doctype html><p>Only the store owner can ask for one of the app’s plans.</p>');
+      }
+
+      return land(
+        await this.ask(options.planCallback, role, { plan, currentPlan: options.hub.planOf(options.appId, options.store) }),
+        '',
+        'Plan',
+        `${options.appName} can’t change plans right now.`
       );
     }
 

@@ -63,6 +63,11 @@ export class StoreApi {
     return this.client(dashboard.store, { kind: 'user', dashboard });
   }
 
+  /** Tells FlyCommerce the plan this store is now on; needs `plan.manage`, which a config that declares `plans` brings. */
+  async setPlan(store: string, plan: string): Promise<void> {
+    await this.asApp(store).request('PUT', '/api/v1/app-installation/plan', { body: { plan } });
+  }
+
   private client(store: string, source: TokenSource): StoreClient {
     const request = <T>(method: string, path: string, options: { query?: Query; body?: unknown } = {}) =>
       this.send<T>(store, source, method, path, options, false);

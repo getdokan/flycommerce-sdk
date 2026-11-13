@@ -6,6 +6,7 @@ export * from './hub.js';
 export * from './install.js';
 export * from './oauth.js';
 export * from './page.js';
+export * from './plans.js';
 export * from './sealer.js';
 export * from './session.js';
 export * from './static.js';

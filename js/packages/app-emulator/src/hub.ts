@@ -8,6 +8,8 @@ export interface RegisteredApp {
   appSecret: string;
   /** The install redirect registered in the developer portal. */
   redirectUri: string;
+  /** The plan keys in the app's app-config.json, default first. With them, a plan the app doesn't declare is refused. */
+  plans?: string[];
 }
 
 export interface Installation {
@@ -19,6 +21,8 @@ export interface Installation {
   clientId: string;
   clientSecret: string;
   active: boolean;
+  /** The plan the app set for this store; null until it sets one, which reads as the app's default plan. */
+  plan: string | null;
 }
 
 export interface AccessGrant {
@@ -63,11 +67,15 @@ export class FakeHub {
   private readonly codes = new Map<string, Installation>();
   private readonly accessTokens = new Map<string, { installation: Installation; expiresAt: number; user?: AccessGrant['user'] }>();
   private readonly endedLogins = new Set<string>();
+  private readonly plans = new Map<string, string[]>();
   private server: RunningServer | null = null;
   private nextMarketplaceId = 100;
 
   private constructor(apps: RegisteredApp[]) {
-    for (const app of apps) this.apps.set(app.appId, app);
+    for (const app of apps) {
+      this.apps.set(app.appId, app);
+      if (app.plans) this.plans.set(app.appId, [...app.plans]);
+    }
   }
 
   static async start(options: { apps: RegisteredApp[]; port?: number }): Promise<FakeHub> {
@@ -108,6 +116,7 @@ export class FakeHub {
       clientId: '',
       clientSecret: '',
       active: true,
+      plan: null,
     };
 
     // Reinstalling re-consents: a fresh credential, and the old one stops working.
@@ -117,6 +126,8 @@ export class FakeHub {
       clientId: randomToken('ci'),
       clientSecret: randomToken('cs'),
       active: true,
+      // Installing over a live installation approves new permissions and keeps the plan; coming back after a removal starts over.
+      plan: existing?.active ? existing.plan : null,
     });
 
     if (!existing) this.installations.push(installation);
@@ -139,6 +150,30 @@ export class FakeHub {
       installation.active = false;
       this.revokeTokens(installation);
     }
+  }
+
+  /** The plan keys in the app's app-config.json, default first, so a plan it doesn't declare is refused as FlyCommerce refuses it. */
+  declarePlans(appId: string, keys: string[]): void {
+    this.plans.set(appId, [...keys]);
+  }
+
+  /** The app telling FlyCommerce the store's plan. False when the app declares plans and this isn't one of them. */
+  setPlan(appId: string, store: string, plan: string): boolean {
+    const installation = this.findInstallation(appId, store);
+    const declared = this.plans.get(appId);
+
+    if (!installation || (declared && !declared.includes(plan))) return false;
+
+    installation.plan = plan;
+    return true;
+  }
+
+  /** The plan a store's tokens carry: what the app set while it still declares it, otherwise the default (the first declared), or null. */
+  planOf(appId: string, store: string): string | null {
+    const declared = this.plans.get(appId);
+    const set = this.findInstallation(appId, store)?.plan ?? null;
+
+    return set !== null && (!declared || declared.includes(set)) ? set : (declared?.[0] ?? null);
   }
 
   findInstallation(appId: string, store: string): Installation | undefined {
@@ -164,6 +199,7 @@ export class FakeHub {
       user_role: options.role ?? 'admin',
       app_id: options.appId,
       installation_id: installation?.installationId ?? 0,
+      plan: this.planOf(options.appId, options.store),
       iat: now,
       nbf: now,
       exp: now + (options.ttlSeconds ?? SESSION_TOKEN_TTL_SECONDS),
@@ -189,6 +225,7 @@ export class FakeHub {
       installation_id: installation?.installationId ?? 0,
       signed_in: signedIn,
       customer_id: signedIn && installation?.scopes.includes('storefront.customer') ? options.customerId! : null,
+      plan: this.planOf(options.appId, options.store),
       iat: now,
       nbf: now,
       exp: now + (options.ttlSeconds ?? SHOPPER_TOKEN_TTL_SECONDS),

@@ -12,6 +12,23 @@ export interface HostPageEntry {
   label: string;
   slug: string;
   path?: string;
+  /** The heading above the page until the app sets its own; the label when left out. */
+  title?: string;
+  /** The plan keys that open the page; every plan when left out. */
+  plans?: string[];
+  /** False locks the page for every store. */
+  isActive?: boolean;
+  /** Called when a store that can't open the page clicks it: a path on appUrl, or a URL on its host. */
+  callback?: string;
+  /** Sub-pages, one level deep; each is locked whenever its parent is. */
+  children?: HostPageEntry[];
+}
+
+/** A plan from app-config.json. */
+export interface HostPlan {
+  key: string;
+  name: string;
+  default?: boolean;
 }
 
 export interface HostPageConfig {
@@ -21,6 +38,14 @@ export interface HostPageConfig {
   store: string;
   slug: string;
   pages: HostPageEntry[];
+  /** Slugs of pages this store can't open: shown with a lock, and never framed. */
+  locked?: string[];
+  /** Where the app's callback sent the merchant: framed instead of the page's own path. */
+  landingUrl?: string;
+  /** The heading until the app sets one, when it isn't the current page's. */
+  heading?: string;
+  /** The app's plans and the store's current one, for the plan switch; left out when the app has none. */
+  plans?: { all: HostPlan[]; current: string | null; canSwitch: boolean };
   /** Links to the example store page when the app has storefront scripts. */
   storefront?: boolean;
   role: string;
@@ -32,7 +57,8 @@ export interface HostPageConfig {
 // Mirrors the real dashboard's embed page: same sandbox, same message checks, same title bar limits.
 const HOST_SCRIPT = String.raw`
 const config = JSON.parse(document.getElementById('host-config').textContent);
-const appOrigin = new URL(config.appUrl).origin;
+// The frame's own origin: a callback may land the merchant on another port of the app's host.
+const appOrigin = new URL(config.frameUrl).origin;
 const nonce = crypto.randomUUID();
 const frame = document.getElementById('app-frame');
 const log = document.getElementById('bridge-log');
@@ -170,6 +196,7 @@ window.addEventListener('message', async (event) => {
     case 'NAVIGATE': {
       const payload = data.payload || {};
       if (typeof payload.surface === 'string') {
+        // A locked page is a slug too: opening it asks the app's callback where to land.
         if (!config.pages.some((page) => page.slug === payload.surface)) return reply(data, false, undefined, 'This app has no surface with the slug "' + payload.surface + '".');
         reply(data, true);
         return window.location.assign('/apps/' + payload.surface + window.location.search);
@@ -257,8 +284,11 @@ export function hostPage(config: HostPageConfig): string {
   const option = (value: string, selected: string, label = value) =>
     `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
 
+  const locked = config.locked ?? [];
   const link = (page: { slug: string }, label: string) =>
-    `<a href="/apps/${escapeHtml(page.slug)}?role=${escapeHtml(config.role)}"${page.slug === config.slug ? ' aria-current="page"' : ''}>${escapeHtml(label)}</a>`;
+    `<a href="/apps/${escapeHtml(page.slug)}?role=${escapeHtml(config.role)}"${page.slug === config.slug ? ' aria-current="page"' : ''}>${escapeHtml(label)}${
+      locked.includes(page.slug) ? ' <span role="img" aria-label="Locked">🔒</span>' : ''
+    }</a>`;
 
   // As the dashboard: one page is the app's own menu item; only several get the app name above them.
   const menu =
@@ -269,7 +299,22 @@ export function hostPage(config: HostPageConfig): string {
 
   // As the dashboard: appUrl + the page's path.
   const current = config.pages.find((page) => page.slug === config.slug);
-  const frameUrl = withoutTrailingSlashes(config.appUrl) + (current?.path ?? `/${config.slug}`);
+  const frameUrl = config.landingUrl ?? withoutTrailingSlashes(config.appUrl) + (current?.path ?? `/${config.slug}`);
+  const heading = config.heading ?? current?.title ?? current?.label ?? config.appName;
+
+  // As the dashboard's Apps page: the plans, the current one, and for the owner a way to ask the app for another.
+  const plans = config.plans
+    ? `<h2>Plan</h2>` +
+      config.plans.all
+        .map((plan) =>
+          plan.key === config.plans!.current
+            ? `<div style="padding:6px 10px">${escapeHtml(plan.name)} <small style="color:var(--muted)">current</small></div>`
+            : config.plans!.canSwitch && config.role === 'owner'
+              ? `<a href="/plan-change?plan=${encodeURIComponent(plan.key)}&role=${escapeHtml(config.role)}">Switch to ${escapeHtml(plan.name)}</a>`
+              : `<div style="padding:6px 10px;color:var(--muted)">${escapeHtml(plan.name)}</div>`
+        )
+        .join('')
+    : '';
   // </script> inside JSON would end the tag early.
   const json = JSON.stringify({ ...config, frameUrl }).replace(/</g, '\\u003c');
 
@@ -282,6 +327,7 @@ export function hostPage(config: HostPageConfig): string {
   <div style="color:var(--muted);font-size:12px">${escapeHtml(config.store)}</div>
   <h2>Apps</h2>
   ${menu}
+  ${plans}
   ${config.storefront ? '<h2>Storefront</h2><a href="/storefront">Example storefront</a>' : ''}
 </nav>
 <main>
@@ -290,7 +336,7 @@ export function hostPage(config: HostPageConfig): string {
     <label>Locale <select id="locale">${['en', 'bn', 'ar', 'tr'].map((locale) => option(locale, config.locale)).join('')}</select></label>
     <label>Theme <select id="theme">${option('light', config.theme)}${option('dark', config.theme)}</select></label>
   </div>
-  <header><div><h1 id="page-title">${escapeHtml(config.appName)}</h1><p id="page-subtitle"></p></div><div id="page-actions"></div></header>
+  <header><div><h1 id="page-title">${escapeHtml(heading)}</h1><p id="page-subtitle"></p></div><div id="page-actions"></div></header>
   <div class="frame-wrap">
     <iframe id="app-frame" title="${escapeHtml(config.appName)}" sandbox="allow-scripts allow-forms allow-popups allow-same-origin allow-modals allow-downloads" allow="clipboard-write; fullscreen"></iframe>
     <div id="loading">Loading ${escapeHtml(config.appName)}…</div>

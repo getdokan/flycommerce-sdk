@@ -530,7 +530,7 @@ describe('flycommerce app dev', () => {
     });
 
     assert.equal(result.code, 1);
-    assert.match(result.stderr, /must be on t\.example\.dev[^]*Write each script src as a path/);
+    assert.match(result.stderr, /must be on t\.example\.dev[^]*Write each script src and callback as a path/);
     assert.ok(!portal.apiCalls().some((call) => call.method === 'PUT'));
   });
 
@@ -590,7 +590,7 @@ describe('flycommerce app dev', () => {
     );
 
     assert.equal(result.code, 1);
-    assert.match(result.stderr, /storefront\.scripts\[0\]\.src must be on t\.example\.dev[^]*Write each script src as a path/);
+    assert.match(result.stderr, /storefront\.scripts\[0\]\.src must be on t\.example\.dev[^]*Write each script src and callback as a path/);
     assert.ok(!portal.apiCalls().some((call) => call.method === 'PUT'));
   });
 });

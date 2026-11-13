@@ -162,6 +162,47 @@ Write script `src` and `install.redirectUrl` as paths, so the same file works wi
 
 `resolveAppConfig(config, { appUrl })` returns the config with those paths as absolute URLs on `appUrl` (the file's own, or the one given), which is what FlyCommerce stores. The install redirect is kept exactly as written, since the install exchange compares it byte for byte; it needs an ASCII host and at most 255 characters once joined to `appUrl`. See [`spec/app-config.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/app-config.md).
 
+### Plans, locked pages and callbacks
+
+Declare plans in `app-config.json`, and say on each page which plans open it. FlyCommerce shows a page the store can't open with a lock and never loads it; your callbacks decide where the merchant lands instead.
+
+```json
+{
+  "plans": [
+    { "key": "free", "name": "Free", "default": true },
+    { "key": "pro", "name": "Pro" }
+  ],
+  "planCallback": "/callbacks/plan",
+  "dashboard": {
+    "pages": [
+      { "slug": "orders", "label": "Orders", "title": "Order export", "path": "/orders" },
+      { "slug": "reports", "label": "Reports", "path": "/reports", "plans": ["pro"], "callback": "/callbacks/reports-locked" }
+    ]
+  }
+}
+```
+
+```ts
+import { StoreApi, authenticate, pageAccess, planOf, readLockedPageCallback, readPlanCallback, json } from '@flycommerce/app-server';
+
+// A locked page was clicked: say where the merchant lands. Answer within 3 seconds.
+const callback = await readLockedPageCallback(req, config); // verifies the session token; { store, session, page, reason }
+json(res, 200, { path: `/upgrade?from=${callback.page}` }); // or { dashboard: '/admin/apps' }
+
+// The owner asked for another plan: send them to your own plan or checkout page.
+const asked = await readPlanCallback(req, config, appConfig); // { store, session, plan, currentPlan }
+json(res, 200, { path: `/plans?to=${asked.plan}` });
+
+// After your own checkout, tell FlyCommerce the store's plan. Only your app's own token can.
+await new StoreApi(config, hub).setPlan(store, 'pro');
+
+// On every request: a locked menu item doesn't stop a call to your API.
+const { session } = await authenticate(req, config);
+if (pageAccess(appConfig, 'reports', planOf(appConfig, session)) !== 'available') throw new HttpError(403, 'upgrade_required');
+```
+
+`pageAccess()` answers `available`, `plan` or `inactive` by the rule FlyCommerce applies to the menu, and `planOf()` reads the `plan` claim of a session or shopper token, falling back to your default plan. A callback's `path` may be a page that isn't in `dashboard.pages`; pass it to `serveWebApp({ pages: [...pagePaths(appConfig), '/upgrade'] })`. `readPlanCallback()` refuses anyone but the store's owner. Setting a plan needs the `plan.manage` permission, which your app has while its config declares `plans`. See [`spec/plans.md`](https://github.com/getdokan/flycommerce-sdk/blob/main/spec/plans.md).
+
 ### Storefront scripts
 
 An app can add up to three scripts to the merchant's storefront, for chat, reviews and similar features. Declare them in `app-config.json`:
