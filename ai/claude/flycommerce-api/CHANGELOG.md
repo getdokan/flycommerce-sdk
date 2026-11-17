@@ -2,6 +2,10 @@
 
 All notable changes to the `flycommerce-api` Claude Code plugin. Versions follow [semantic versioning](https://semver.org).
 
+## [0.1.4]
+
+- Pages and policies: the public pages endpoints, `format=markdown` for reading a page with a model, and finding each policy's page through `GET /api/v1/settings/policies`.
+
 ## [0.1.3]
 
 - Document `currency` on money responses and `GET /api/v1/store`.
