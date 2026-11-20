@@ -56,13 +56,19 @@ const load = (when) => config.scripts.filter((script) => (script.load || 'idle')
 // window.FlyCommerce.run(): the store's actions, here on an in-page cart, with the store's limits and Undo.
 const products = JSON.parse(document.getElementById('store-products').textContent);
 const cart = [];
+const coupons = [];
+// Example codes: one that works, one that needs a bigger cart, one that has expired.
+const COUPONS = { SAVE10: { percent: 10 }, BIG20: { percent: 20, minimum: 50 }, SUMMER: { percent: 15, expired: true } };
 const changes = [];
 const key = (line) => line.productId + ':' + (line.variationId || '');
 const productName = (id) => (products.find((product) => product.id === id) || {}).title || id;
 const priceOf = (id) => (products.find((product) => product.id === id) || {}).price || 0;
 const summary = () => {
   const lines = cart.map((line) => ({ ...line, name: productName(line.productId), unitPrice: priceOf(line.productId), total: priceOf(line.productId) * line.quantity }));
-  return { lines, count: lines.reduce((sum, line) => sum + line.quantity, 0), subtotal: lines.reduce((sum, line) => sum + line.total, 0) };
+  const subtotal = lines.reduce((sum, line) => sum + line.total, 0);
+  const applied = coupons.map((code) => ({ code, discount: Math.round(subtotal * COUPONS[code].percent) / 100 }));
+  const discount = Math.min(subtotal, applied.reduce((sum, coupon) => sum + coupon.discount, 0));
+  return { lines, count: lines.reduce((sum, line) => sum + line.quantity, 0), subtotal, discount, total: subtotal - discount, coupons: applied, currency: window.FlyCommerce.currency };
 };
 const quantityOf = (line) => (cart.find((candidate) => key(candidate) === key(line)) || { quantity: 0 }).quantity;
 const setQuantity = (line, quantity) => {
@@ -80,6 +86,11 @@ const drawCart = () => {
     item.textContent = line.quantity + ' × ' + line.name;
     document.getElementById('cart-lines').append(item);
   });
+  now.coupons.forEach((coupon) => {
+    const item = document.createElement('li');
+    item.textContent = 'Coupon ' + coupon.code + ': −' + coupon.discount;
+    document.getElementById('cart-lines').append(item);
+  });
 };
 const changed = () => {
   drawCart();
@@ -88,20 +99,22 @@ const changed = () => {
   window.dispatchEvent(new CustomEvent('flycommerce:cart:updated', { detail }));
   return detail;
 };
-const announce = (message, before) => {
+const announce = (message, before, couponsBefore = coupons.slice()) => {
   const notice = document.getElementById('notice');
   notice.textContent = message + ' ';
   const undo = document.createElement('button');
   undo.type = 'button';
   undo.textContent = 'Undo';
-  undo.onclick = () => { cart.splice(0, cart.length, ...before); notice.textContent = 'Undone.'; changed(); };
+  undo.onclick = () => { cart.splice(0, cart.length, ...before); coupons.splice(0, coupons.length, ...couponsBefore); notice.textContent = 'Undone.'; changed(); };
   notice.append(undo);
   record('announced: ' + message);
 };
 const line = (input) => typeof input.productId === 'string' && input.productId && (input.variationId === undefined || typeof input.variationId === 'string');
 const quantity = (value) => Number.isInteger(value) && value >= 1 && value <= 10;
+const couponCode = (input) => typeof input.code === 'string' && /^(?!\.+$)[^\s/?#%\\\p{C}]{1,64}$/u.test(input.code);
+const refuse = (message, reason, details) => Object.assign(new Error(message), { reason, details });
 const ACTIONS = {
-  'cart.get': { changes: false, description: "Read the shopper's cart: each line's product, quantity and price, the item count and the subtotal.", valid: () => true, run: () => summary() },
+  'cart.get': { changes: false, description: "Read the shopper's cart: each line's product, seller, quantity and price, the item count, the coupons applied, and the subtotal, discount and total.", valid: () => true, run: () => summary() },
   'cart.add': {
     changes: true,
     description: "Add products to the shopper's cart. Quantities add to what is already there.",
@@ -138,6 +151,39 @@ const ACTIONS = {
       return changed();
     },
   },
+  'cart.applyCoupon': {
+    changes: true,
+    description: "Apply a coupon code to the shopper's cart. A refused code comes back with a reason, such as expired or below_minimum.",
+    valid: couponCode,
+    run: (input) => {
+      const code = input.code;
+      const coupon = Object.hasOwn(COUPONS, code) ? COUPONS[code] : null;
+      if (!cart.length) throw refuse('The cart is empty.', 'empty_cart');
+      if (!coupon) throw refuse('The provided coupon code is invalid.', 'invalid');
+      if (coupon.expired) throw refuse('This coupon has expired!', 'expired');
+      if (coupons.includes(code)) throw refuse('Coupon has already been applied!', 'already_applied');
+      if (coupon.minimum && summary().subtotal < coupon.minimum) throw refuse('Minimum purchase amount not met!', 'below_minimum', { minimum: coupon.minimum, shortfall: Math.round((coupon.minimum - summary().subtotal) * 100) / 100 });
+      const before = cart.map((entry) => ({ ...entry }));
+      const couponsBefore = coupons.slice();
+      coupons.push(code);
+      announce('Coupon ' + code + ' applied', before, couponsBefore);
+      return changed();
+    },
+  },
+  'cart.removeCoupon': {
+    changes: true,
+    description: "Remove a coupon code from the shopper's cart.",
+    valid: couponCode,
+    run: (input) => {
+      const code = input.code;
+      if (!coupons.includes(code)) throw refuse('That coupon is not on the cart.', 'not_applied');
+      const before = cart.map((entry) => ({ ...entry }));
+      const couponsBefore = coupons.slice();
+      coupons.splice(coupons.indexOf(code), 1);
+      announce('Coupon ' + code + ' removed', before, couponsBefore);
+      return changed();
+    },
+  },
   'nav.goto': {
     changes: false,
     description: 'Take the shopper to a product, collection or category by its slug, or to the cart page.',
@@ -159,10 +205,10 @@ Object.assign(window.FlyCommerce, {
     if (!action.valid(input || {})) return { ok: false, error: 'Invalid input for ' + name + '.' };
     if (action.changes) {
       while (changes.length && changes[0] <= Date.now() - 60000) changes.shift();
-      if (changes.length >= 10) return { ok: false, error: 'Too many cart changes. Try again in a minute.' };
+      if (changes.length >= 10) return { ok: false, error: 'Too many cart changes. Try again in a minute.', reason: 'rate_limited' };
       changes.push(Date.now());
     }
-    try { return { ok: true, result: action.run(input || {}) }; } catch (error) { return { ok: false, error: error.message }; }
+    try { return { ok: true, result: action.run(input || {}) }; } catch (error) { return { ok: false, error: error.message, ...(error.reason ? { reason: error.reason } : {}), ...(error.details ? { details: error.details } : {}) }; }
   },
   can: (name) => Object.hasOwn(ACTIONS, name),
   actions: () => Object.entries(ACTIONS).map(([name, action]) => ({ name, description: action.description, changes: action.changes })),
