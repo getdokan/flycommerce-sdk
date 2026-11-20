@@ -61,17 +61,21 @@ It holds nothing about the shopper: no customer ID, name, email, cart or order.
 
 ## Store actions
 
-Stores that support them add functions to `window.FlyCommerce`; check before calling (`typeof window.FlyCommerce.run === 'function'`). `run(name, input)` does what the shopper could do with a click, through the store's own code, so the cart count and drawer update as usual. It resolves to `{ ok: true, result }` or `{ ok: false, error }`, where `error` is the store's own message.
+Stores that support them add functions to `window.FlyCommerce`; check before calling (`typeof window.FlyCommerce.run === 'function'`). `run(name, input)` does what the shopper could do with a click, through the store's own code, so the cart count and drawer update as usual. It resolves to `{ ok: true, result }` or `{ ok: false, error, reason?, details? }`, where `error` is the store's own message for the shopper and `reason` is a stable code you can act on.
 
 | Action | Input | Result |
 | --- | --- | --- |
-| `cart.get` | — | `{ lines: [{ productId, variationId?, name, quantity, unitPrice, total }], count, subtotal }`: never the cart's id or anything about the customer |
+| `cart.get` | — | `{ lines: [{ productId, variationId?, name, quantity, unitPrice, total, vendorId?, vendorName? }], count, subtotal, discount, total, coupons: [{ code, discount }], currency? }`: never the cart's id or anything about the customer |
 | `cart.add` | `{ items: [{ productId, variationId?, quantity }] }`, 1–10 lines, quantity 1–10 | The new cart |
 | `cart.update` | `{ productId, variationId?, quantity }` | The new cart |
 | `cart.remove` | `{ productId, variationId? }` | The new cart |
+| `cart.applyCoupon` | `{ code }` | The new cart, or a refusal with a `reason` |
+| `cart.removeCoupon` | `{ code }` | The new cart |
 | `nav.goto` | `{ to: 'product' \| 'collection' \| 'category', slug }` or `{ to: 'cart' }` | `null`. Never another site, never checkout |
 | `ui.openCart` | — | `null` |
 
+- `subtotal` is before discounts, `discount` is everything taken off (offers and coupons), and `total` is the subtotal less the discount. Shipping and tax are worked out at checkout, so they are not in the cart. Amounts are in the store's base currency, named in `currency`. A store that predates these fields sends only `lines`, `count` and `subtotal`.
+- A refused coupon answers `{ ok: false, error, reason }`. Reasons: `invalid` (no such code, or not one this shopper may use), `expired`, `not_started`, `redeemed` and `voided` (a one-time offer already used, or withdrawn), `usage_limit`, `customer_usage_limit`, `sign_in_required`, `already_applied`, `below_minimum` and `below_minimum_quantity` (both with `details: { minimum, shortfall }`, in the store's base currency or in items), `no_eligible_items`, `stacking` (can't be combined with a discount already on the cart), `not_applicable`, `rate_limited`, `empty_cart`, and `not_applied` when removing a code that isn't on the cart. Stores may add reasons, so treat one you don't know as `not_applicable`. Codes are matched exactly as the merchant typed them, so `save10` is not `SAVE10`. Check `can('cart.applyCoupon')` first: older stores don't have it.
 - `can(name)` says whether the store has an action; `actions()` lists them, each with a description written for an AI choosing a tool and whether it `changes` the cart.
 - The store announces every change with its own notice and an Undo, and allows at most 10 changes a minute per page.
 - After each change, `flycommerce:cart:updated` is dispatched on `window` with the new cart as `detail`.

@@ -143,6 +143,15 @@ export interface CartLine {
   quantity: number;
   unitPrice: number | null;
   total: number | null;
+  /** The seller of the line, on a marketplace. */
+  vendorId?: number;
+  vendorName?: string;
+}
+
+/** A coupon on the cart and what it takes off. */
+export interface CartCoupon {
+  code: string;
+  discount: number;
 }
 
 /** The shopper's cart: never its id, nor anything about the customer. */
@@ -150,7 +159,37 @@ export interface CartSummary {
   lines: CartLine[];
   count: number;
   subtotal: number;
+  /** Everything taken off the subtotal: offers and coupons. Absent on stores that predate it, like `total` and `coupons`. */
+  discount?: number;
+  /** The subtotal less the discount. Shipping and tax are added at checkout. */
+  total?: number;
+  coupons?: CartCoupon[];
+  /** ISO 4217, for every amount here. Absent when the cart is empty. */
+  currency?: string;
 }
+
+/**
+ * Why a store refused a coupon, as `reason` on a failed `cart.applyCoupon` or `cart.removeCoupon`.
+ * Stores may add reasons: treat one you don't know as `not_applicable`.
+ */
+export type CouponRefusalReason =
+  | 'invalid'
+  | 'expired'
+  | 'not_started'
+  | 'redeemed'
+  | 'voided'
+  | 'usage_limit'
+  | 'customer_usage_limit'
+  | 'sign_in_required'
+  | 'already_applied'
+  | 'below_minimum'
+  | 'below_minimum_quantity'
+  | 'no_eligible_items'
+  | 'stacking'
+  | 'not_applicable'
+  | 'rate_limited'
+  | 'empty_cart'
+  | 'not_applied';
 
 /** What each storefront action takes. Quantities are 1 to 10, and `cart.add` takes up to 10 lines. */
 export interface StorefrontActionInputs {
@@ -158,13 +197,20 @@ export interface StorefrontActionInputs {
   'cart.add': { items: { productId: string; variationId?: string; quantity: number }[] };
   'cart.update': { productId: string; variationId?: string; quantity: number };
   'cart.remove': { productId: string; variationId?: string };
+  'cart.applyCoupon': { code: string };
+  'cart.removeCoupon': { code: string };
   'nav.goto': { to: 'product' | 'collection' | 'category'; slug: string } | { to: 'cart' };
   'ui.openCart': Record<string, never>;
 }
 
 export type StorefrontActionName = keyof StorefrontActionInputs;
 
-export type StorefrontActionResult = { ok: true; result: unknown } | { ok: false; error: string };
+/**
+ * `error` is the store's message for the shopper. `reason` is a stable code for a refusal you can act on, and
+ * `details` holds its figures: `minimum` and `shortfall` when a coupon needs a bigger cart.
+ */
+export type StorefrontActionResult =
+  { ok: true; result: unknown } | { ok: false; error: string; reason?: string; details?: Record<string, number> };
 
 export interface StorefrontActionInfo {
   name: StorefrontActionName;

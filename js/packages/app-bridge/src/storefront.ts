@@ -1,6 +1,8 @@
 import type {
+  CartCoupon,
   CartLine,
   CartSummary,
+  CouponRefusalReason,
   StorefrontActionInfo,
   StorefrontActionInputs,
   StorefrontActionName,
@@ -10,8 +12,10 @@ import type {
 } from './types.js';
 
 export type {
+  CartCoupon,
   CartLine,
   CartSummary,
+  CouponRefusalReason,
   StorefrontActionInfo,
   StorefrontActionInputs,
   StorefrontActionName,

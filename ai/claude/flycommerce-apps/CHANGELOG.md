@@ -2,6 +2,10 @@
 
 All notable changes to the `flycommerce-apps` Claude Code plugin. Versions follow [semantic versioning](https://semver.org).
 
+## [0.4.2]
+
+- Coupons from a storefront script: `cart.applyCoupon` and `cart.removeCoupon`, the `reason` a store gives when it refuses a code, and the cart's `discount`, `total`, `coupons` and `currency`.
+
 ## [0.4.1]
 
 - The CLI's day-to-day commands: `app create --dev --write-env`, `env pull`, `app dev --local` on the emulator, `doctor` first when something breaks, `app status`, `app open`, `app secret rotate` and `app token create|list|revoke`. Creating apps and rotating secrets only when the developer asks; deploy tokens never in the repo or the chat.
